@@ -11,7 +11,7 @@ For more see: <https://github.com/codybloemhard/incodoc>
 
 ## Features
 
-Features are project to include:
+Features are projected to include:
 
 - commit files into production
 - manage dates and versions of pages
