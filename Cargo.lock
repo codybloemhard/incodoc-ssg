@@ -190,6 +190,7 @@ dependencies = [
  "clap",
  "incodoc-to-html",
  "md-to-incodoc",
+ "simpleio",
  "zen-colour",
 ]
 
@@ -324,6 +325,12 @@ dependencies = [
  "cpufeatures",
  "digest",
 ]
+
+[[package]]
+name = "simpleio"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d5dd9f555ea49eed2ccacb77cfd3b34e47475c9e9a91d5348168501934a63e5"
 
 [[package]]
 name = "strsim"
