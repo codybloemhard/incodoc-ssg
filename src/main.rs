@@ -58,10 +58,9 @@ fn main() {
     let mut entries = Entries::from_lines(lines);
     match args.command {
         Commands::List => {
-            println!("list");
+            print!("{}", entries.list());
         },
         Commands::Map { src, dst, force, carry } => {
-            println!("map: src {src} to dst: {dst}");
             match entries.map(src, dst, force, carry) {
                 MapResult::Noop => println!("  Nothing need to be done."),
                 MapResult::NewDst => println!("  New destination set."),
@@ -200,6 +199,34 @@ impl Entries {
             res.src_index.insert(src, index);
             res.dst_index.insert(dst, index);
         }
+        res
+    }
+
+    fn list(&self) -> String {
+        let mut res = String::new();
+        for Entry { src, dst, version, enabled } in &self.entries {
+            res.push_str("     source: ");
+            res.push_str(src);
+            res.push('\n');
+            res.push_str("destination: ");
+            res.push_str(dst);
+            res.push('\n');
+            res.push_str("    version: ");
+            res.push_str(&version.0.to_string());
+            res.push('.');
+            res.push_str(&version.1.to_string());
+            res.push('.');
+            res.push_str(&version.2.to_string());
+            res.push('\n');
+            res.push_str("    enabled: ");
+            if *enabled {
+                res.push_str("yes");
+            } else {
+                res.push_str("no");
+            }
+            res.push_str("\n\n");
+        }
+        res.pop();
         res
     }
 
