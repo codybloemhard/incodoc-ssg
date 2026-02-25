@@ -16,4 +16,5 @@ md-to-incodoc = "0.3.0"
 zen-colour = "1.1.2"
 clap = { version = "4.5.59", features = ["derive"] }
 simpleio = "0.2.3"
+incodoc = "0.6.1"
 

@@ -188,6 +188,7 @@ name = "incodoc-ssg"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "incodoc",
  "incodoc-to-html",
  "md-to-incodoc",
  "simpleio",

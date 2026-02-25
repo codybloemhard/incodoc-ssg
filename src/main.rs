@@ -3,8 +3,16 @@ mod tests;
 use std::fs::File;
 use std::io::prelude::*;
 use std::collections::HashMap;
+use std::process::ExitCode;
 
-use simpleio::read_lines;
+use simpleio::{ read_lines, read_file_into_string };
+
+use incodoc::PropVal;
+
+use md_to_incodoc::parse_md_to_incodoc;
+
+use incodoc_to_html::doc_to_html_string;
+use incodoc_to_html::config::*;
 
 use clap::{
     Parser,
@@ -47,12 +55,12 @@ enum Commands {
     #[clap(short_flag = 'u', about = "Update an entry by either source or destination.")]
     Update {
         src_or_dst: String,
-        #[clap(short = 'd', default_value_t = false, help = "Show all.")]
-        dry: bool,
+        #[clap(help = "How to bump version: major, minor, patch, keep (version the same).")]
+        version_bump: String,
     },
 }
 
-fn main() {
+fn main() -> ExitCode {
     let args = Args::parse();
     let lines = read_lines(&args.path);
     let mut entries = Entries::from_lines(lines);
@@ -77,30 +85,94 @@ fn main() {
             }
         },
         Commands::Enable { src_or_dst } => {
-            println!("remove: {src_or_dst}");
+            if entries.set_enabled(&src_or_dst, true) {
+                println!("Enabled successfully.");
+            } else {
+                println!("Could not find that source or destination.");
+            }
         },
         Commands::Disable { src_or_dst } => {
-            println!("remove: {src_or_dst}");
+            if entries.set_enabled(&src_or_dst, false) {
+                println!("Disabled successfully.");
+            } else {
+                println!("Could not find that source or destination.");
+            }
         },
-        Commands::Update { src_or_dst, dry } => {
-            println!("remove: {src_or_dst}, dry: {dry}");
-        },
+        Commands::Update { src_or_dst, version_bump } => {
+            if let Some(index) = entries.index_by_src_or_dst(&src_or_dst) {
+                let entry = &mut entries.entries[index];
+                let src = match read_file_into_string(&entry.src) {
+                    Ok(src) => src,
+                    Err(err) => {
+                        eprintln!("Could not open file {}: {}", entry.src, err);
+                        return ExitCode::FAILURE;
+                    },
+                };
+                let mut doc = parse_md_to_incodoc(&src);
+                doc.props.insert("version".to_string(), PropVal::String(entry.print_version()));
+                let conf = Config {
+                    include: Include::FullDocument,
+                    nav: NavConfig {
+                        include: false,
+                        close_top: true,
+                        closed_depth: 1000,
+                        position: NavPosition::Bottom,
+                    },
+                    table_of_contents: TableOfContentsConfig {
+                        closed: false,
+                        include: TableOfContentsInclusion::IfSuggested,
+                        position: TableOfContentsPosition::BeforeFirstSubSection,
+                    },
+                };
+                let html = doc_to_html_string(&mut doc, &conf);
+                let mut file = if let Ok(file) = File::create(&entry.dst) { file }
+                else {
+                    eprintln!("Could not open file {} for writing", entry.dst);
+                    return ExitCode::FAILURE;
+                };
+                if file.write_all(&html.into_bytes()).is_err() {
+                    eprintln!("Could not write to file {}!", entry.dst);
+                    return ExitCode::FAILURE;
+                }
+                println!("Output written successfully to {}.", entry.dst);
+                match entry.bump_version(&version_bump) {
+                    Some(version) => println!("New version: {}", print_version(&version)),
+                    None => println!("Version was not bumped up!"),
+                }
+            } else {
+                eprintln!("Could not find source nor destination.");
+            }
+        }
     }
     let mut file = if let Ok(file) = File::create(&args.path) { file }
     else {
         eprintln!("Could not open file {} for writing", args.path);
-        return;
+        return ExitCode::FAILURE;
     };
     if file.write_all(&entries.to_lines().into_bytes()).is_err() {
         eprintln!("Could not write to file {}!", args.path);
     };
+
+    ExitCode::SUCCESS
+}
+
+type Version = (usize, usize, usize);
+
+fn print_version(version: &Version) -> String {
+    let mut res = String::new();
+    res.push_str(&version.0.to_string());
+    res.push('.');
+    res.push_str(&version.1.to_string());
+    res.push('.');
+    res.push_str(&version.2.to_string());
+    res
 }
 
 #[derive(Clone, Default, Hash, Debug, Eq, PartialEq, Ord, PartialOrd)]
 struct Entry {
     src: String,
     dst: String,
-    version: (usize, usize, usize),
+    version: Version,
     enabled: bool,
 }
 
@@ -122,6 +194,10 @@ enum MapResult {
 }
 
 impl Entry {
+    fn print_version(&self) -> String {
+        print_version(&self.version)
+    }
+
     fn pretty_print(&self) -> String {
         let mut res = String::new();
         res.push_str("     source: ");
@@ -131,11 +207,7 @@ impl Entry {
         res.push_str(&self.dst);
         res.push('\n');
         res.push_str("    version: ");
-        res.push_str(&self.version.0.to_string());
-        res.push('.');
-        res.push_str(&self.version.1.to_string());
-        res.push('.');
-        res.push_str(&self.version.2.to_string());
+        res.push_str(&self.print_version());
         res.push('\n');
         res.push_str("    enabled: ");
         if self.enabled {
@@ -144,6 +216,19 @@ impl Entry {
             res.push_str("no");
         }
         res
+    }
+
+    fn bump_version(&mut self, bump: &str) -> Option<Version> {
+        let new_version = match bump {
+            "major" => Some((self.version.0 + 1, 0, 0)),
+            "minor" => Some((self.version.0, self.version.1 + 1, 0)),
+            "patch" => Some((self.version.0, self.version.1, self.version.2 + 1)),
+            _ => None,
+        };
+        if let Some(new_version) = new_version {
+            self.version = new_version;
+        }
+        new_version
     }
 }
 
@@ -189,17 +274,17 @@ impl Entries {
                     eprintln!("Could not get version minor on line {i}!");
                     continue;
                 };
-                let fix = if let Some(fix_raw) = split.next() {
-                    if let Ok(fix) = fix_raw.parse::<usize>() { fix }
+                let patch = if let Some(patch_raw) = split.next() {
+                    if let Ok(patch) = patch_raw.parse::<usize>() { patch }
                     else {
-                        eprintln!("Could not parse version fix on line {i}!");
+                        eprintln!("Could not parse version patch on line {i}!");
                         continue;
                     }
                 } else {
-                    eprintln!("Could not get version fix on line {i}!");
+                    eprintln!("Could not get version patch on line {i}!");
                     continue;
                 };
-                (major, minor, fix)
+                (major, minor, patch)
             } else {
                 eprintln!("Could not get version on line {i}!");
                 continue;
@@ -339,6 +424,15 @@ impl Entries {
             })
         } else {
             None
+        }
+    }
+
+    fn set_enabled(&mut self, src_or_dst: &str, enabled: bool) -> bool {
+        if let Some(index) = self.index_by_src_or_dst(src_or_dst) {
+            self.entries[index].enabled = enabled;
+            true
+        } else {
+            false
         }
     }
 }
