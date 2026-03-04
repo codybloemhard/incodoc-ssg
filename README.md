@@ -18,6 +18,10 @@ Features are projected to include:
 - manage archived pages that are citeable
 - warning for dangling pages
 - generates purely static incodoc and html/css pages
+- generate rss feed
+- simple header and footer
+- simple configuration file
+- path prefix for input and output of maps
 
 ## Development
 

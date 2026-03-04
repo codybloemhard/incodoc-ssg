@@ -3,15 +3,20 @@ mod tests;
 use std::fs::File;
 use std::io::prelude::*;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::process::ExitCode;
 
 use simpleio::{ read_lines, read_file_into_string };
 
 use incodoc::PropVal;
+use incodoc::Doc;
+use incodoc::actions::toc::TableOfContentsItemType;
+use incodoc::actions::toc::TableOfContentsFilterType;
 
 use md_to_incodoc::parse_md_to_incodoc;
 
 use incodoc_to_html::doc_to_html_string;
+use incodoc_to_html::link_to_html;
 use incodoc_to_html::config::*;
 
 use clap::{
@@ -110,18 +115,28 @@ fn main() -> ExitCode {
                 };
                 let mut doc = parse_md_to_incodoc(&src);
                 doc.props.insert("version".to_string(), PropVal::String(entry.print_version()));
+                let header = build_header(&doc);
+                let footer = build_footer(entry);
                 let conf = Config {
-                    include: Include::FullDocument,
+                    include: Include::Augmented(header, footer),
                     nav: NavConfig {
                         include: false,
                         close_top: true,
                         closed_depth: 1000,
-                        position: NavPosition::Bottom,
+                        position: Position::Bottom,
                     },
                     table_of_contents: TableOfContentsConfig {
                         closed: false,
                         include: TableOfContentsInclusion::IfSuggested,
-                        position: TableOfContentsPosition::BeforeFirstSubSection,
+                        position: Position::BeforeFirstSubSection,
+                        filter: Some((
+                            HashSet::from([
+                                TableOfContentsItemType::Document,
+                                TableOfContentsItemType::Section,
+                                TableOfContentsItemType::FootnoteDefinition,
+                            ]),
+                            TableOfContentsFilterType::IncludeWithChildren
+                        )),
                     },
                 };
                 let html = doc_to_html_string(&mut doc, &conf);
@@ -154,6 +169,28 @@ fn main() -> ExitCode {
     };
 
     ExitCode::SUCCESS
+}
+
+fn build_header(doc: &Doc) -> String {
+    let mut header = String::new();
+    header += "<header>";
+    if let Some(nav) = doc.navs.first() && let Some(link) = nav.links.first() {
+        link_to_html(link, &mut header);
+    }
+    header += "</header>";
+    header
+}
+
+fn build_footer(entry: &Entry) -> String {
+    let mut footer = String::new();
+    footer += "<footer>";
+    footer += "<strong>© 2026 Cody Bloemhard</strong> | ";
+    footer += "version: ";
+    footer += "<strong>";
+    footer += &entry.print_version();
+    footer += "</strong>";
+    footer += "</footer>";
+    footer
 }
 
 type Version = (usize, usize, usize);

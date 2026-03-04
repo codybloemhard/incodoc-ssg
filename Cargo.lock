@@ -175,9 +175,9 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "incodoc"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5154513596c54d8caef284a4e996227759648887ba20b32b3c50b3554ebf6109"
+checksum = "227ac2f89f9afda193b42cf42b86def3bcc624c9cd80293e605b02b9da4adad3"
 dependencies = [
  "pest",
  "pest_derive",
@@ -216,9 +216,9 @@ checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
 
 [[package]]
 name = "md-to-incodoc"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b4db74cf3033b754c4c8ffe17293a22858a72c4d839308a5d60f1de59df3b20"
+checksum = "1389211b2de9a3a91e92960ada2c80b6e8f317284ef41fc90accfcbfe4f363e9"
 dependencies = [
  "incodoc",
  "pulldown-cmark",
