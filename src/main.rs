@@ -1,10 +1,9 @@
-mod tests;
-
 use std::fs::File;
 use std::io::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::process::ExitCode;
+use std::path::PathBuf;
 
 use simpleio::{ read_lines, read_file_into_string };
 
@@ -36,30 +35,25 @@ struct Args {
 enum Commands {
     #[clap(short_flag = 'l', about = "List all entries.")]
     List,
-    #[clap(short_flag = 'a', about = "Map a source to a destination.")]
-    Map {
-        src: String,
-        dst: String,
-        #[clap(short = 'f', default_value_t = false, help = "Force: may overwrite.")]
-        force: bool,
-        #[clap(short = 'c', default_value_t = false, help = "Carry over version and enabled when overwriting.")]
-        carry: bool,
+    #[clap(short_flag = 'a', about = "Add entry.")]
+    Add {
+        path: String,
     },
-    #[clap(short_flag = 'r', about = "Remove entry by either source or destination.")]
+    #[clap(short_flag = 'r', about = "Remove entry.")]
     Remove {
-        src_or_dst: String,
+        path: String,
     },
-    #[clap(short_flag = 'e', about = "Enable a disabled entry by either source or destination.")]
+    #[clap(short_flag = 'e', about = "Enable a disabled entry.")]
     Enable {
-        src_or_dst: String,
+        path: String,
     },
-    #[clap(short_flag = 'd', about = "Disable an enabled entry by either source or destination.")]
+    #[clap(short_flag = 'd', about = "Disable an enabled entry.")]
     Disable {
-        src_or_dst: String,
+        path: String,
     },
     #[clap(short_flag = 'u', about = "Update an entry by either source or destination.")]
     Update {
-        src_or_dst: String,
+        path: String,
         #[clap(help = "How to bump version: major, minor, patch, keep (version the same).")]
         version_bump: String,
     },
@@ -73,43 +67,45 @@ fn main() -> ExitCode {
         Commands::List => {
             print!("{}", entries.list());
         },
-        Commands::Map { src, dst, force, carry } => {
-            match entries.map(src, dst, force, carry) {
-                MapResult::Noop => println!("Nothing need to be done."),
-                MapResult::NewDst => println!("New destination set."),
-                MapResult::NewSrc => println!("New source set."),
-                MapResult::NewEntry => println!("New source and destination set."),
-                MapResult::NewDstBlocked => println!("Could not set new destination (use force)."),
-                MapResult::NewSrcBlocked => println!("Could not set new source (use force)."),
+        Commands::Add { path } => {
+            if entries.add(path) {
+                println!("New entry added successfully.");
+            } else {
+                eprintln!("Could not add entry: entry already exists!");
             }
         },
-        Commands::Remove { src_or_dst } => {
-            if let Some(entry) = entries.remove(&src_or_dst) {
+        Commands::Remove { path } => {
+            if let Some(entry) = entries.remove(&path) {
                 println!("Removed this entry: ");
                 println!("{}", entry.pretty_print());
             }
         },
-        Commands::Enable { src_or_dst } => {
-            if entries.set_enabled(&src_or_dst, true) {
+        Commands::Enable { path } => {
+            if entries.set_enabled(&path, true) {
                 println!("Enabled successfully.");
             } else {
-                println!("Could not find that source or destination.");
+                println!("Could not find entry.");
             }
         },
-        Commands::Disable { src_or_dst } => {
-            if entries.set_enabled(&src_or_dst, false) {
+        Commands::Disable { path } => {
+            if entries.set_enabled(&path, false) {
                 println!("Disabled successfully.");
             } else {
-                println!("Could not find that source or destination.");
+                println!("Could not find entry.");
             }
         },
-        Commands::Update { src_or_dst, version_bump } => {
-            if let Some(index) = entries.index_by_src_or_dst(&src_or_dst) {
+        Commands::Update { path, version_bump } => {
+            if let Some(index) = entries.get_index(&path) {
                 let entry = &mut entries.entries[index];
-                let src = match read_file_into_string(&entry.src) {
+                let mut src_path = PathBuf::from("");
+                let mut dst_path = PathBuf::from("testdir/");
+                src_path.push(&entry.path);
+                dst_path.push(&entry.path);
+                dst_path.set_extension("html");
+                let src = match read_file_into_string(&src_path) {
                     Ok(src) => src,
                     Err(err) => {
-                        eprintln!("Could not open file {}: {}", entry.src, err);
+                        eprintln!("Could not open file {}: {}", src_path.display(), err);
                         return ExitCode::FAILURE;
                     },
                 };
@@ -140,22 +136,26 @@ fn main() -> ExitCode {
                     },
                 };
                 let html = doc_to_html_string(&mut doc, &conf);
-                let mut file = if let Ok(file) = File::create(&entry.dst) { file }
+                if let Some(dir) = dst_path.parent()
+                    && let Err(error) = std::fs::create_dir_all(dir) {
+                    eprintln!("Could not create dir {}: {}.", dir.display(), error);
+                };
+                let mut file = if let Ok(file) = File::create(&dst_path) { file }
                 else {
-                    eprintln!("Could not open file {} for writing", entry.dst);
+                    eprintln!("Could not open file {} for writing", dst_path.display());
                     return ExitCode::FAILURE;
                 };
                 if file.write_all(&html.into_bytes()).is_err() {
-                    eprintln!("Could not write to file {}!", entry.dst);
+                    eprintln!("Could not write to file {}!", dst_path.display());
                     return ExitCode::FAILURE;
                 }
-                println!("Output written successfully to {}.", entry.dst);
+                println!("Output written successfully to {}.", dst_path.display());
                 match entry.bump_version(&version_bump) {
                     Some(version) => println!("New version: {}", print_version(&version)),
                     None => println!("Version was not bumped up!"),
                 }
             } else {
-                eprintln!("Could not find source nor destination.");
+                eprintln!("Could not find entry.");
             }
         }
     }
@@ -207,8 +207,7 @@ fn print_version(version: &Version) -> String {
 
 #[derive(Clone, Default, Hash, Debug, Eq, PartialEq, Ord, PartialOrd)]
 struct Entry {
-    src: String,
-    dst: String,
+    path: String,
     version: Version,
     enabled: bool,
 }
@@ -216,18 +215,7 @@ struct Entry {
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 struct Entries {
     entries: Vec<Entry>,
-    src_index: HashMap<String, usize>,
-    dst_index: HashMap<String, usize>,
-}
-
-#[derive(Clone, Copy, Hash, Debug, Eq, PartialEq, Ord, PartialOrd)]
-enum MapResult {
-    Noop,
-    NewDst,
-    NewSrc,
-    NewEntry,
-    NewDstBlocked,
-    NewSrcBlocked,
+    index: HashMap<String, usize>,
 }
 
 impl Entry {
@@ -237,16 +225,13 @@ impl Entry {
 
     fn pretty_print(&self) -> String {
         let mut res = String::new();
-        res.push_str("     source: ");
-        res.push_str(&self.src);
+        res.push_str("   path: ");
+        res.push_str(&self.path);
         res.push('\n');
-        res.push_str("destination: ");
-        res.push_str(&self.dst);
-        res.push('\n');
-        res.push_str("    version: ");
+        res.push_str("version: ");
         res.push_str(&self.print_version());
         res.push('\n');
-        res.push_str("    enabled: ");
+        res.push_str("enabled: ");
         if self.enabled {
             res.push_str("yes");
         } else {
@@ -274,18 +259,11 @@ impl Entries {
         let mut res = Self::default();
         for (i, line) in lines.into_iter().enumerate() {
             let mut split = line.split(',');
-            let src = if let Some(src) = split.next() {
-                let src = src.trim();
-                src.to_string()
+            let path = if let Some(path) = split.next() {
+                let path = path.trim();
+                path.to_string()
             } else {
-                eprintln!("Could not get src on line {i}!");
-                continue;
-            };
-            let dst = if let Some(dst) = split.next() {
-                let dst = dst.trim();
-                dst.to_string()
-            } else {
-                eprintln!("Could not get dst on line {i}!");
+                eprintln!("Could not get path on line {i}!");
                 continue;
             };
             let version = if let Some(version_raw) = split.next() {
@@ -341,14 +319,12 @@ impl Entries {
                 continue;
             };
             res.entries.push(Entry {
-                src: src.clone(),
-                dst: dst.clone(),
+                path: path.clone(),
                 version,
                 enabled,
             });
             let index = res.entries.len() - 1;
-            res.src_index.insert(src, index);
-            res.dst_index.insert(dst, index);
+            res.index.insert(path, index);
         }
         res
     }
@@ -365,14 +341,12 @@ impl Entries {
 
     fn to_lines(&self) -> String {
         let mut res = String::new();
-        for Entry { src, dst, version, enabled } in &self.entries {
+        for Entry { path, version, enabled } in &self.entries {
             // actual deleting of entries happens here
-            if src.is_empty() || dst.is_empty() {
+            if path.is_empty() {
                 continue;
             }
-            res.push_str(src);
-            res.push_str(", ");
-            res.push_str(dst);
+            res.push_str(path);
             res.push_str(", ");
             res.push_str(&version.0.to_string());
             res.push('.');
@@ -390,72 +364,32 @@ impl Entries {
         res
     }
 
-    fn map(&mut self, src: String, dst: String, overwrite: bool, carry_over: bool)
-        -> MapResult
-    {
-        if let Some(sindex) = self.src_index.get(&src) {
-            if self.entries[*sindex].dst == dst {
-                MapResult::Noop
-            } else if overwrite {
-                let old_dst = self.entries[*sindex].dst.clone();
-                self.dst_index.insert(dst.clone(), *sindex); // point new dst to entry
-                self.entries[*sindex].dst = dst; // set new dst in entry
-                self.dst_index.remove(&old_dst); // make sure the old dst doesn't point to anything
-                if !carry_over {
-                    self.entries[*sindex].version = (0, 1, 0);
-                    self.entries[*sindex].enabled = true;
-                }
-                MapResult::NewDst
-            } else {
-                MapResult::NewDstBlocked
-            }
-        } else if let Some(dindex) = self.dst_index.get(&dst) {
-            if self.entries[*dindex].src == src {
-                MapResult::Noop
-            } else if overwrite {
-                let old_src = self.entries[*dindex].src.clone();
-                self.src_index.insert(src.clone(), *dindex); // point new dst to entry
-                self.entries[*dindex].src = src; // set new src in entry
-                self.src_index.remove(&old_src); // make sure the old src doesn't point to anything
-                if !carry_over {
-                    self.entries[*dindex].version = (0, 1, 0);
-                    self.entries[*dindex].enabled = true;
-                }
-                MapResult::NewSrc
-            } else {
-                MapResult::NewSrcBlocked
-            }
+    // returns true if added, false if already exists
+    fn add(&mut self, path: String) -> bool {
+        if self.index.contains_key(&path) {
+             false
         } else {
             self.entries.push(Entry {
-                src: src.clone(),
-                dst: dst.clone(),
+                path: path.clone(),
                 version: (0, 1, 0),
                 enabled: true,
             });
             let len = self.entries.len() - 1;
-            self.src_index.insert(src, len);
-            self.dst_index.insert(dst, len);
-            MapResult::NewEntry
+            self.index.insert(path, len);
+            true
         }
     }
 
-    fn index_by_src_or_dst(&self, src_or_dst: &str) -> Option<usize> {
-        let src_res = self.src_index.get(src_or_dst);
-        if src_res.is_some() { return src_res.copied(); }
-        let dst_res = self.dst_index.get(src_or_dst);
-        if dst_res.is_some() { return dst_res.copied(); }
-        None
+    fn get_index(&self, path: &str) -> Option<usize> {
+        self.index.get(path).copied()
     }
 
-    fn remove(&mut self, src_or_dst: &str) -> Option<Entry> {
-        if let Some(index) = self.index_by_src_or_dst(src_or_dst) {
-            self.src_index.remove(&self.entries[index].src);
-            self.dst_index.remove(&self.entries[index].dst);
-            let src = std::mem::take(&mut self.entries[index].src);
-            let dst = std::mem::take(&mut self.entries[index].dst);
+    fn remove(&mut self, path: &str) -> Option<Entry> {
+        if let Some(index) = self.get_index(path) {
+            self.index.remove(path);
+            let path = std::mem::take(&mut self.entries[index].path);
             Some(Entry {
-                src,
-                dst,
+                path,
                 version: self.entries[index].version,
                 enabled: self.entries[index].enabled,
             })
@@ -464,8 +398,8 @@ impl Entries {
         }
     }
 
-    fn set_enabled(&mut self, src_or_dst: &str, enabled: bool) -> bool {
-        if let Some(index) = self.index_by_src_or_dst(src_or_dst) {
+    fn set_enabled(&mut self, path: &str, enabled: bool) -> bool {
+        if let Some(index) = self.get_index(path) {
             self.entries[index].enabled = enabled;
             true
         } else {
