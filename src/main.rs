@@ -62,7 +62,8 @@ enum Commands {
 fn main() -> ExitCode {
     let args = Args::parse();
     let lines = read_lines(&args.path);
-    let mut entries = Entries::from_lines(lines);
+    let (config, mut entries) = if let Some(res) = parse(lines) { res }
+    else { return ExitCode::FAILURE };
     match args.command {
         Commands::List => {
             print!("{}", entries.list());
@@ -97,8 +98,8 @@ fn main() -> ExitCode {
         Commands::Update { path, version_bump } => {
             if let Some(index) = entries.get_index(&path) {
                 let entry = &mut entries.entries[index];
-                let mut src_path = PathBuf::from("");
-                let mut dst_path = PathBuf::from("testdir/");
+                let mut src_path = PathBuf::from(&config.src);
+                let mut dst_path = PathBuf::from(&config.dst);
                 src_path.push(&entry.path);
                 dst_path.push(&entry.path);
                 dst_path.set_extension("html");
@@ -113,7 +114,7 @@ fn main() -> ExitCode {
                 doc.props.insert("version".to_string(), PropVal::String(entry.print_version()));
                 let header = build_header(&doc);
                 let footer = build_footer(entry);
-                let conf = Config {
+                let conf = incodoc_to_html::config::Config {
                     include: Include::Augmented(header, footer),
                     nav: NavConfig {
                         include: false,
@@ -164,11 +165,77 @@ fn main() -> ExitCode {
         eprintln!("Could not open file {} for writing", args.path);
         return ExitCode::FAILURE;
     };
-    if file.write_all(&entries.to_lines().into_bytes()).is_err() {
+    let mut output = config.unparse();
+    entries.unparse(&mut output);
+    if file.write_all(&output.into_bytes()).is_err() {
         eprintln!("Could not write to file {}!", args.path);
     };
 
     ExitCode::SUCCESS
+}
+
+fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
+    let mut res = Entries::default();
+    let mut iter = lines.into_iter().enumerate();
+    let src = parse_kv(iter.next(), "source")?;
+    let dst = parse_kv(iter.next(), "destination")?;
+    for (i, line) in iter {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(entry) = Entry::from_line(line, i) {
+            let path = entry.path.clone();
+            res.entries.push(entry);
+            let index = res.entries.len() - 1;
+            res.index.insert(path, index);
+        }
+    }
+    Some((
+        Config {
+            src,
+            dst,
+        },
+        res,
+    ))
+}
+
+fn parse_kv(line: Option<(usize, String)>, key: &str) -> Option<String> {
+    let (line_nr, line) = if let Some(l) = line { l }
+    else {
+        eprintln!("Expected line containing source.");
+        return None;
+    };
+    let mut split = line.split(':');
+    if let Some(k) = split.next() {
+        let k = k.trim();
+        if k != key {
+            eprintln!("Expected key {key} but found key {k} on line number {line_nr}.");
+            return None;
+        }
+    } else {
+        return None;
+    }
+    split.next().map(|v| { let r = v.trim(); r.to_string() })
+}
+
+struct Config {
+    src: String,
+    dst: String,
+}
+
+impl Config {
+    fn unparse(self) -> String {
+        let mut res = String::new();
+        res.push_str("source: ");
+        res.push_str(&self.src);
+        res.push('\n');
+        res.push_str("destination: ");
+        res.push_str(&self.dst);
+        res.push('\n');
+        res.push('\n');
+        res
+    }
 }
 
 fn build_header(doc: &Doc) -> String {
@@ -240,6 +307,74 @@ impl Entry {
         res
     }
 
+    fn from_line(line: &str, line_nr: usize) -> Option<Self> {
+        let mut split = line.split(',');
+        let path = if let Some(path) = split.next() {
+            let path = path.trim();
+            path.to_string()
+        } else {
+            eprintln!("Could not get path on line {line_nr}!");
+            return None;
+        };
+        let version = if let Some(version_raw) = split.next() {
+            let mut split = version_raw.split('.');
+            let major = if let Some(major_raw) = split.next() {
+                let major_raw = major_raw.trim();
+                if let Ok(major) = major_raw.parse::<usize>() { major }
+                else {
+                    eprintln!("Could not parse version major on line {line_nr}!");
+                    return None;
+                }
+            } else {
+                eprintln!("Could not get version major on line {line_nr}!");
+                return None;
+            };
+            let minor = if let Some(minor_raw) = split.next() {
+                if let Ok(minor) = minor_raw.parse::<usize>() { minor }
+                else {
+                    eprintln!("Could not parse version minor on line {line_nr}!");
+                    return None;
+                }
+            } else {
+                eprintln!("Could not get version minor on line {line_nr}!");
+                return None;
+            };
+            let patch = if let Some(patch_raw) = split.next() {
+                if let Ok(patch) = patch_raw.parse::<usize>() { patch }
+                else {
+                    eprintln!("Could not parse version patch on line {line_nr}!");
+                    return None;
+                }
+            } else {
+                eprintln!("Could not get version patch on line {line_nr}!");
+                return None;
+            };
+            (major, minor, patch)
+        } else {
+            eprintln!("Could not get version on line {line_nr}!");
+            return None;
+        };
+        let enabled = if let Some(enabled_raw) = split.next() {
+            let enabled_raw = enabled_raw.trim();
+            if enabled_raw == "enabled" {
+                true
+            } else if enabled_raw == "disabled" {
+                false
+            } else {
+                eprintln!("Could not parse enabled on line {line_nr}!");
+                return None;
+            }
+        } else {
+            eprintln!("Could not get enabled on line {line_nr}!");
+            return None;
+        };
+        Some(Entry {
+            path,
+            version,
+            enabled,
+        })
+    }
+
     fn bump_version(&mut self, bump: &str) -> Option<Version> {
         let new_version = match bump {
             "major" => Some((self.version.0 + 1, 0, 0)),
@@ -255,80 +390,6 @@ impl Entry {
 }
 
 impl Entries {
-    fn from_lines(lines: Vec<String>) -> Self {
-        let mut res = Self::default();
-        for (i, line) in lines.into_iter().enumerate() {
-            let mut split = line.split(',');
-            let path = if let Some(path) = split.next() {
-                let path = path.trim();
-                path.to_string()
-            } else {
-                eprintln!("Could not get path on line {i}!");
-                continue;
-            };
-            let version = if let Some(version_raw) = split.next() {
-                let mut split = version_raw.split('.');
-                let major = if let Some(major_raw) = split.next() {
-                    let major_raw = major_raw.trim();
-                    if let Ok(major) = major_raw.parse::<usize>() { major }
-                    else {
-                        eprintln!("Could not parse version major on line {i}!");
-                        continue;
-                    }
-                } else {
-                    eprintln!("Could not get version major on line {i}!");
-                    continue;
-                };
-                let minor = if let Some(minor_raw) = split.next() {
-                    if let Ok(minor) = minor_raw.parse::<usize>() { minor }
-                    else {
-                        eprintln!("Could not parse version minor on line {i}!");
-                        continue;
-                    }
-                } else {
-                    eprintln!("Could not get version minor on line {i}!");
-                    continue;
-                };
-                let patch = if let Some(patch_raw) = split.next() {
-                    if let Ok(patch) = patch_raw.parse::<usize>() { patch }
-                    else {
-                        eprintln!("Could not parse version patch on line {i}!");
-                        continue;
-                    }
-                } else {
-                    eprintln!("Could not get version patch on line {i}!");
-                    continue;
-                };
-                (major, minor, patch)
-            } else {
-                eprintln!("Could not get version on line {i}!");
-                continue;
-            };
-            let enabled = if let Some(enabled_raw) = split.next() {
-                let enabled_raw = enabled_raw.trim();
-                if enabled_raw == "enabled" {
-                    true
-                } else if enabled_raw == "disabled" {
-                    false
-                } else {
-                    eprintln!("Could not parse enabled on line {i}!");
-                    continue;
-                }
-            } else {
-                eprintln!("Could not get enabled on line {i}!");
-                continue;
-            };
-            res.entries.push(Entry {
-                path: path.clone(),
-                version,
-                enabled,
-            });
-            let index = res.entries.len() - 1;
-            res.index.insert(path, index);
-        }
-        res
-    }
-
     fn list(&self) -> String {
         let mut res = String::new();
         for entry in &self.entries {
@@ -339,8 +400,7 @@ impl Entries {
         res
     }
 
-    fn to_lines(&self) -> String {
-        let mut res = String::new();
+    fn unparse(&self, res: &mut String) {
         for Entry { path, version, enabled } in &self.entries {
             // actual deleting of entries happens here
             if path.is_empty() {
@@ -361,7 +421,6 @@ impl Entries {
             }
             res.push('\n');
         }
-        res
     }
 
     // returns true if added, false if already exists
