@@ -115,6 +115,12 @@ fn main() -> ExitCode {
                     eprintln!("Could not compute base path!");
                     return ExitCode::FAILURE;
                 };
+                let mut css_path = PathBuf::from(&base_path);
+                css_path.push(&config.css);
+                let inc_rel_path = inc_path
+                    .file_name()
+                    .map(|os| os.to_str().unwrap_or(""))
+                    .unwrap_or("");
                 let src = match read_file_into_string(&src_path) {
                     Ok(src) => src,
                     Err(err) => {
@@ -125,19 +131,20 @@ fn main() -> ExitCode {
                 let mut doc = parse_md_to_incodoc(&src);
                 let bump_result = entry.bump_version(&version_bump);
                 doc.props.insert("version".to_string(), PropVal::String(entry.print_version()));
-                let mut css_path = PathBuf::from(&base_path);
-                css_path.push(&config.css);
-                doc.props.insert("css".to_string(), PropVal::String(css_path.display().to_string()));
                 doc.props.insert("lang".to_string(), PropVal::String(config.lang.clone()));
                 doc.props.insert("author".to_string(), PropVal::String(config.author.clone()));
-                let inc_rel_path = inc_path
-                    .file_name()
-                    .map(|os| os.to_str().unwrap_or(""))
-                    .unwrap_or("");
                 let header = build_header(&doc, inc_rel_path);
                 let footer = build_footer(entry, &config.author);
                 let conf = incodoc_to_html::config::Config {
                     include: Include::Augmented(header, footer),
+                    header_links: vec![
+                        HeaderLink::Css{ href: css_path.display().to_string() },
+                        HeaderLink::General{
+                            rel: "alternate".to_string(),
+                            ltype: "text/incodoc".to_string(),
+                            href: inc_rel_path.to_string(),
+                        },
+                    ],
                     nav: NavConfig {
                         include: false,
                         close_top: true,
@@ -166,7 +173,6 @@ fn main() -> ExitCode {
                 if !write_file(&dst_path, dst_path.display(), html) {
                     return ExitCode::FAILURE;
                 }
-                doc.props.remove("css");
                 let mut incodoc = String::new();
                 doc_out(&doc, &mut incodoc);
                 if !write_file(&inc_path, inc_path.display(), incodoc) {
