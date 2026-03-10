@@ -26,6 +26,8 @@ use clap::{
     Subcommand,
 };
 
+use chrono::{ Local, Datelike };
+
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
@@ -130,11 +132,20 @@ fn main() -> ExitCode {
                 };
                 let mut doc = parse_md_to_incodoc(&src);
                 let bump_result = entry.bump_version(&version_bump);
+                let date = Local::now();
+                let date_2822 = date.to_rfc2822();
+                let date_unix = date.timestamp();
+                let date_footer = date.format("%Y-%m-%d %a");
+                let date_year = date.year();
                 doc.props.insert("version".to_string(), PropVal::String(entry.print_version()));
                 doc.props.insert("lang".to_string(), PropVal::String(config.lang.clone()));
                 doc.props.insert("author".to_string(), PropVal::String(config.author.clone()));
+                doc.props.insert("date-rfc2822".to_string(), PropVal::String(date_2822));
+                doc.props.insert("date-unix".to_string(), PropVal::String(date_unix.to_string()));
                 let header = build_header(&doc, inc_rel_path);
-                let footer = build_footer(entry, &config.author);
+                let footer = build_footer(
+                    entry, &config.author, &date_footer.to_string(), date_year
+                );
                 let conf = incodoc_to_html::config::Config {
                     include: Include::Augmented(header, footer),
                     header_links: vec![
@@ -294,9 +305,8 @@ fn build_header(doc: &Doc, incodoc_url: &str) -> String {
     header += "<header>";
     if !incodoc_url.is_empty() {
         header += "<a href=\"./";
-        println!("{}", incodoc_url);
         header += incodoc_url;
-        header += "\">incodoc version</a> | ";
+        header += "\"> incodoc version</a> | ";
     }
     if let Some(nav) = doc.navs.first() && let Some(link) = nav.links.first() {
         link_to_html(link, &mut header);
@@ -305,15 +315,20 @@ fn build_header(doc: &Doc, incodoc_url: &str) -> String {
     header
 }
 
-fn build_footer(entry: &Entry, author: &str) -> String {
+fn build_footer(entry: &Entry, author: &str, date: &str, year: i32) -> String {
     let mut footer = String::new();
     footer += "<footer>";
-    footer += "<strong>© 2026 ";
+    footer += "<strong>© ";
+    footer += &year.to_string();
+    footer += " ";
     footer += author;
     footer += "</strong> | ";
     footer += "version: ";
     footer += "<strong>";
     footer += &entry.print_version();
+    footer += "</strong>";
+    footer += " | date: <strong>";
+    footer += date;
     footer += "</strong>";
     footer += "</footer>";
     footer
