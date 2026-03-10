@@ -122,8 +122,10 @@ fn main() -> ExitCode {
                 let mut css_path = PathBuf::from(&base_path);
                 css_path.push(&config.css);
                 doc.props.insert("css".to_string(), PropVal::String(css_path.display().to_string()));
+                doc.props.insert("lang".to_string(), PropVal::String(config.lang.clone()));
+                doc.props.insert("author".to_string(), PropVal::String(config.author.clone()));
                 let header = build_header(&doc);
-                let footer = build_footer(entry);
+                let footer = build_footer(entry, &config.author);
                 let conf = incodoc_to_html::config::Config {
                     include: Include::Augmented(header, footer),
                     nav: NavConfig {
@@ -187,9 +189,11 @@ fn main() -> ExitCode {
 fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
     let mut res = Entries::default();
     let mut iter = lines.into_iter().enumerate();
-    let src = parse_kv(iter.next(), "source")?;
-    let dst = parse_kv(iter.next(), "destination")?;
+    let src = parse_kv(iter.next(), "src")?;
+    let dst = parse_kv(iter.next(), "dst")?;
     let css = parse_kv(iter.next(), "css")?;
+    let lang = parse_kv(iter.next(), "lang")?;
+    let author = parse_kv(iter.next(), "author")?;
     for (i, line) in iter {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -207,6 +211,8 @@ fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
             src,
             dst,
             css,
+            lang,
+            author,
         },
         res,
     ))
@@ -235,20 +241,24 @@ struct Config {
     src: String,
     dst: String,
     css: String,
+    lang: String,
+    author: String,
 }
 
 impl Config {
     fn unparse(self) -> String {
+        fn unparse_field(res: &mut String, name: &str, value: &str) {
+            res.push_str(name);
+            res.push_str(": ");
+            res.push_str(value);
+            res.push('\n');
+        }
         let mut res = String::new();
-        res.push_str("source: ");
-        res.push_str(&self.src);
-        res.push('\n');
-        res.push_str("destination: ");
-        res.push_str(&self.dst);
-        res.push('\n');
-        res.push_str("css: ");
-        res.push_str(&self.css);
-        res.push('\n');
+        unparse_field(&mut res, "src", &self.src);
+        unparse_field(&mut res, "dst", &self.dst);
+        unparse_field(&mut res, "css", &self.css);
+        unparse_field(&mut res, "lang", &self.lang);
+        unparse_field(&mut res, "author", &self.author);
         res.push('\n');
         res
     }
@@ -264,10 +274,12 @@ fn build_header(doc: &Doc) -> String {
     header
 }
 
-fn build_footer(entry: &Entry) -> String {
+fn build_footer(entry: &Entry, author: &str) -> String {
     let mut footer = String::new();
     footer += "<footer>";
-    footer += "<strong>© 2026 Cody Bloemhard</strong> | ";
+    footer += "<strong>© 2026 ";
+    footer += author;
+    footer += "</strong> | ";
     footer += "version: ";
     footer += "<strong>";
     footer += &entry.print_version();
