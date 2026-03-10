@@ -3,12 +3,15 @@ use std::io::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::process::ExitCode;
+use std::path::Path;
 use std::path::PathBuf;
+use std::fmt::Display;
 
 use simpleio::{ read_lines, read_file_into_string };
 
 use incodoc::PropVal;
 use incodoc::Doc;
+use incodoc::output::doc_out;
 use incodoc::actions::toc::TableOfContentsItemType;
 use incodoc::actions::toc::TableOfContentsFilterType;
 
@@ -103,6 +106,8 @@ fn main() -> ExitCode {
                 src_path.push(&entry.path);
                 dst_path.push(&entry.path);
                 dst_path.set_extension("html");
+                let mut inc_path = dst_path.clone();
+                inc_path.set_extension("incodoc");
                 let base_path = if let Some(file_parent) = dst_path.parent()
                     && let Some(bp) = pathdiff::diff_paths(&config.dst, file_parent) {
                     bp
@@ -118,13 +123,18 @@ fn main() -> ExitCode {
                     },
                 };
                 let mut doc = parse_md_to_incodoc(&src);
+                let bump_result = entry.bump_version(&version_bump);
                 doc.props.insert("version".to_string(), PropVal::String(entry.print_version()));
                 let mut css_path = PathBuf::from(&base_path);
                 css_path.push(&config.css);
                 doc.props.insert("css".to_string(), PropVal::String(css_path.display().to_string()));
                 doc.props.insert("lang".to_string(), PropVal::String(config.lang.clone()));
                 doc.props.insert("author".to_string(), PropVal::String(config.author.clone()));
-                let header = build_header(&doc);
+                let inc_rel_path = inc_path
+                    .file_name()
+                    .map(|os| os.to_str().unwrap_or(""))
+                    .unwrap_or("");
+                let header = build_header(&doc, inc_rel_path);
                 let footer = build_footer(entry, &config.author);
                 let conf = incodoc_to_html::config::Config {
                     include: Include::Augmented(header, footer),
@@ -148,22 +158,21 @@ fn main() -> ExitCode {
                         )),
                     },
                 };
-                let html = doc_to_html_string(&mut doc, &conf);
                 if let Some(dir) = dst_path.parent()
                     && let Err(error) = std::fs::create_dir_all(dir) {
                     eprintln!("Could not create dir {}: {}.", dir.display(), error);
                 };
-                let mut file = if let Ok(file) = File::create(&dst_path) { file }
-                else {
-                    eprintln!("Could not open file {} for writing", dst_path.display());
-                    return ExitCode::FAILURE;
-                };
-                if file.write_all(&html.into_bytes()).is_err() {
-                    eprintln!("Could not write to file {}!", dst_path.display());
+                let html = doc_to_html_string(&mut doc, &conf);
+                if !write_file(&dst_path, dst_path.display(), html) {
                     return ExitCode::FAILURE;
                 }
-                println!("Output written successfully to {}.", dst_path.display());
-                match entry.bump_version(&version_bump) {
+                doc.props.remove("css");
+                let mut incodoc = String::new();
+                doc_out(&doc, &mut incodoc);
+                if !write_file(&inc_path, inc_path.display(), incodoc) {
+                    return ExitCode::FAILURE;
+                }
+                match bump_result {
                     Some(version) => println!("New version: {}", print_version(&version)),
                     None => println!("Version was not bumped up!"),
                 }
@@ -172,18 +181,28 @@ fn main() -> ExitCode {
             }
         }
     }
-    let mut file = if let Ok(file) = File::create(&args.path) { file }
-    else {
-        eprintln!("Could not open file {} for writing", args.path);
-        return ExitCode::FAILURE;
-    };
     let mut output = config.unparse();
     entries.unparse(&mut output);
-    if file.write_all(&output.into_bytes()).is_err() {
-        eprintln!("Could not write to file {}!", args.path);
-    };
+    if !write_file(&args.path, &args.path, output) {
+        return ExitCode::FAILURE;
+    }
 
     ExitCode::SUCCESS
+}
+
+// returns false if failed
+fn write_file<P: AsRef<Path>, D: Display>(file_path: P, display: D, contents: String) -> bool {
+    let mut file = if let Ok(file) = File::create(&file_path) { file }
+    else {
+        eprintln!("Could not open file {} for writing", display);
+        return false;
+    };
+    if file.write_all(&contents.into_bytes()).is_err() {
+        eprintln!("Could not write to file {}!", display);
+        return false;
+    }
+    println!("Output written successfully to {}.", display);
+    true
 }
 
 fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
@@ -264,9 +283,15 @@ impl Config {
     }
 }
 
-fn build_header(doc: &Doc) -> String {
+fn build_header(doc: &Doc, incodoc_url: &str) -> String {
     let mut header = String::new();
     header += "<header>";
+    if !incodoc_url.is_empty() {
+        header += "<a href=\"./";
+        println!("{}", incodoc_url);
+        header += incodoc_url;
+        header += "\">incodoc version</a> | ";
+    }
     if let Some(nav) = doc.navs.first() && let Some(link) = nav.links.first() {
         link_to_html(link, &mut header);
     }
