@@ -103,6 +103,13 @@ fn main() -> ExitCode {
                 src_path.push(&entry.path);
                 dst_path.push(&entry.path);
                 dst_path.set_extension("html");
+                let base_path = if let Some(file_parent) = dst_path.parent()
+                    && let Some(bp) = pathdiff::diff_paths(&config.dst, file_parent) {
+                    bp
+                } else {
+                    eprintln!("Could not compute base path!");
+                    return ExitCode::FAILURE;
+                };
                 let src = match read_file_into_string(&src_path) {
                     Ok(src) => src,
                     Err(err) => {
@@ -112,6 +119,9 @@ fn main() -> ExitCode {
                 };
                 let mut doc = parse_md_to_incodoc(&src);
                 doc.props.insert("version".to_string(), PropVal::String(entry.print_version()));
+                let mut css_path = PathBuf::from(&base_path);
+                css_path.push(&config.css);
+                doc.props.insert("css".to_string(), PropVal::String(css_path.display().to_string()));
                 let header = build_header(&doc);
                 let footer = build_footer(entry);
                 let conf = incodoc_to_html::config::Config {
@@ -179,6 +189,7 @@ fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
     let mut iter = lines.into_iter().enumerate();
     let src = parse_kv(iter.next(), "source")?;
     let dst = parse_kv(iter.next(), "destination")?;
+    let css = parse_kv(iter.next(), "css")?;
     for (i, line) in iter {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -195,6 +206,7 @@ fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
         Config {
             src,
             dst,
+            css,
         },
         res,
     ))
@@ -222,6 +234,7 @@ fn parse_kv(line: Option<(usize, String)>, key: &str) -> Option<String> {
 struct Config {
     src: String,
     dst: String,
+    css: String,
 }
 
 impl Config {
@@ -232,6 +245,9 @@ impl Config {
         res.push('\n');
         res.push_str("destination: ");
         res.push_str(&self.dst);
+        res.push('\n');
+        res.push_str("css: ");
+        res.push_str(&self.css);
         res.push('\n');
         res.push('\n');
         res
