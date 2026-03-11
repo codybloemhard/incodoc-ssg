@@ -142,9 +142,12 @@ fn main() -> ExitCode {
                 doc.props.insert("author".to_string(), PropVal::String(config.author.clone()));
                 doc.props.insert("date-rfc2822".to_string(), PropVal::String(date_2822));
                 doc.props.insert("date-unix".to_string(), PropVal::String(date_unix.to_string()));
+                doc.props.insert(
+                    "initial-version-date".to_string(), PropVal::String(entry.first_date.clone())
+                );
                 let header = build_header(&doc, inc_rel_path);
                 let footer = build_footer(
-                    entry, &config.author, &date_footer.to_string(), date_year
+                    entry, &config.author, &date_footer.to_string(), date_year, entry.first_year
                 );
                 let conf = incodoc_to_html::config::Config {
                     include: Include::Augmented(header, footer),
@@ -315,11 +318,17 @@ fn build_header(doc: &Doc, incodoc_url: &str) -> String {
     header
 }
 
-fn build_footer(entry: &Entry, author: &str, date: &str, year: i32) -> String {
+fn build_footer(entry: &Entry, author: &str, date: &str, year: i32, first_year: i32) -> String {
     let mut footer = String::new();
     footer += "<footer>";
     footer += "<strong>© ";
-    footer += &year.to_string();
+    if year == first_year {
+        footer += &year.to_string();
+    } else {
+        footer += &first_year.to_string();
+        footer += " - ";
+        footer += &year.to_string();
+    }
     footer += " ";
     footer += author;
     footer += "</strong> | ";
@@ -351,6 +360,8 @@ struct Entry {
     path: String,
     version: Version,
     enabled: bool,
+    first_date: String,
+    first_year: i32,
 }
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
@@ -378,6 +389,10 @@ impl Entry {
         } else {
             res.push_str("no");
         }
+        res.push('\n');
+        res.push_str("first added on: ");
+        res.push_str(&self.first_date);
+        res.push('\n');
         res
     }
 
@@ -442,10 +457,24 @@ impl Entry {
             eprintln!("Could not get enabled on line {line_nr}!");
             return None;
         };
+        let first_date = if let Some(first_date_raw) = split.next() {
+            first_date_raw.trim().to_string()
+        } else {
+            eprintln!("Could not get first date on line {line_nr}!");
+            return None;
+        };
+        let first_year = if let Ok(first_year) = first_date[0..4].parse::<i32>() {
+            first_year
+        } else {
+            eprintln!("Could not parse first year on line {line_nr}!");
+            return None;
+        };
         Some(Entry {
             path,
             version,
             enabled,
+            first_date,
+            first_year,
         })
     }
 
@@ -475,7 +504,7 @@ impl Entries {
     }
 
     fn unparse(&self, res: &mut String) {
-        for Entry { path, version, enabled } in &self.entries {
+        for Entry { path, version, enabled, first_date, .. } in &self.entries {
             // actual deleting of entries happens here
             if path.is_empty() {
                 continue;
@@ -493,6 +522,8 @@ impl Entries {
             } else {
                 res.push_str("disabled");
             }
+            res.push_str(", ");
+            res.push_str(first_date);
             res.push('\n');
         }
     }
@@ -502,10 +533,15 @@ impl Entries {
         if self.index.contains_key(&path) {
              false
         } else {
+            let date = Local::now();
+            let date_first = date.format("%Y-%m-%d %a");
+            let date_year = date.year();
             self.entries.push(Entry {
                 path: path.clone(),
                 version: (0, 1, 0),
                 enabled: true,
+                first_date: date_first.to_string(),
+                first_year: date_year,
             });
             let len = self.entries.len() - 1;
             self.index.insert(path, len);
@@ -521,10 +557,13 @@ impl Entries {
         if let Some(index) = self.get_index(path) {
             self.index.remove(path);
             let path = std::mem::take(&mut self.entries[index].path);
+            let first_date = std::mem::take(&mut self.entries[index].first_date);
             Some(Entry {
                 path,
                 version: self.entries[index].version,
                 enabled: self.entries[index].enabled,
+                first_date,
+                first_year: self.entries[index].first_year,
             })
         } else {
             None
