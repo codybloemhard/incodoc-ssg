@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::fs::remove_file;
 use std::io::prelude::*;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -85,6 +86,7 @@ fn main() -> ExitCode {
             if let Some(entry) = entries.remove(&path) {
                 println!("Removed this entry: ");
                 println!("{}", entry.pretty_print());
+                delete_files(&entry.path, &config.dst);
             }
         },
         Commands::Enable { path } => {
@@ -98,6 +100,7 @@ fn main() -> ExitCode {
         Commands::Disable { path } => {
             if entries.set_enabled(&path, false) {
                 println!("Disabled successfully.");
+                delete_files(&path, &config.dst);
             } else {
                 println!("Could not find entry.");
             }
@@ -233,6 +236,23 @@ fn write_file<P: AsRef<Path>, D: Display>(file_path: P, display: D, contents: St
     }
     println!("Output written successfully to {}.", display);
     true
+}
+
+fn delete_files(path: &str, base: &str) {
+    let mut dst_path = PathBuf::from(base);
+    dst_path.push(path);
+    dst_path.set_extension("html");
+    let mut inc_path = dst_path.clone();
+    inc_path.set_extension("incodoc");
+    delete_file(&dst_path.display().to_string());
+    delete_file(&inc_path.display().to_string());
+}
+
+fn delete_file<P: AsRef<Path> + Display + Copy>(path: P) {
+    match remove_file(path) {
+        Ok(_) => println!("Deleted file: {}", path),
+        Err(error) => eprintln!("Could not delete file {}: {}", path, error),
+    }
 }
 
 fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
