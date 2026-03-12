@@ -74,8 +74,9 @@ fn main() -> ExitCode {
             print!("{}", entries.list());
         },
         Commands::Add { path } => {
-            if entries.add(path) {
+            if entries.add(path.clone()) {
                 println!("New entry added successfully.");
+                update_entry(path, "keep", &mut entries, &config);
             } else {
                 eprintln!("Could not add entry: entry already exists!");
             }
@@ -89,6 +90,7 @@ fn main() -> ExitCode {
         Commands::Enable { path } => {
             if entries.set_enabled(&path, true) {
                 println!("Enabled successfully.");
+                update_entry(path, "keep", &mut entries, &config);
             } else {
                 println!("Could not find entry.");
             }
@@ -101,104 +103,7 @@ fn main() -> ExitCode {
             }
         },
         Commands::Update { path, version_bump } => {
-            if let Some(index) = entries.get_index(&path) {
-                let entry = &mut entries.entries[index];
-                let mut src_path = PathBuf::from(&config.src);
-                let mut dst_path = PathBuf::from(&config.dst);
-                src_path.push(&entry.path);
-                dst_path.push(&entry.path);
-                dst_path.set_extension("html");
-                let mut inc_path = dst_path.clone();
-                inc_path.set_extension("incodoc");
-                let base_path = if let Some(file_parent) = dst_path.parent()
-                    && let Some(bp) = pathdiff::diff_paths(&config.dst, file_parent) {
-                    bp
-                } else {
-                    eprintln!("Could not compute base path!");
-                    return ExitCode::FAILURE;
-                };
-                let mut css_path = PathBuf::from(&base_path);
-                css_path.push(&config.css);
-                let inc_rel_path = inc_path
-                    .file_name()
-                    .map(|os| os.to_str().unwrap_or(""))
-                    .unwrap_or("");
-                let src = match read_file_into_string(&src_path) {
-                    Ok(src) => src,
-                    Err(err) => {
-                        eprintln!("Could not open file {}: {}", src_path.display(), err);
-                        return ExitCode::FAILURE;
-                    },
-                };
-                let mut doc = parse_md_to_incodoc(&src);
-                let bump_result = entry.bump_version(&version_bump);
-                let date = Local::now();
-                let date_2822 = date.to_rfc2822();
-                let date_unix = date.timestamp();
-                let date_footer = date.format("%Y-%m-%d %a");
-                let date_year = date.year();
-                doc.props.insert("version".to_string(), PropVal::String(entry.print_version()));
-                doc.props.insert("lang".to_string(), PropVal::String(config.lang.clone()));
-                doc.props.insert("author".to_string(), PropVal::String(config.author.clone()));
-                doc.props.insert("date-rfc2822".to_string(), PropVal::String(date_2822));
-                doc.props.insert("date-unix".to_string(), PropVal::String(date_unix.to_string()));
-                doc.props.insert(
-                    "initial-version-date".to_string(), PropVal::String(entry.first_date.clone())
-                );
-                let header = build_header(&doc, inc_rel_path);
-                let footer = build_footer(
-                    entry, &config.author, &date_footer.to_string(), date_year, entry.first_year
-                );
-                let conf = incodoc_to_html::config::Config {
-                    include: Include::Augmented(header, footer),
-                    header_links: vec![
-                        HeaderLink::Css{ href: css_path.display().to_string() },
-                        HeaderLink::General{
-                            rel: "alternate".to_string(),
-                            ltype: "text/incodoc".to_string(),
-                            href: inc_rel_path.to_string(),
-                        },
-                    ],
-                    nav: NavConfig {
-                        include: false,
-                        close_top: true,
-                        closed_depth: 1000,
-                        position: Position::Bottom,
-                    },
-                    table_of_contents: TableOfContentsConfig {
-                        closed: false,
-                        include: TableOfContentsInclusion::IfSuggested,
-                        position: Position::BeforeFirstSubSection,
-                        filter: Some((
-                            HashSet::from([
-                                TableOfContentsItemType::Document,
-                                TableOfContentsItemType::Section,
-                                TableOfContentsItemType::FootnoteDefinition,
-                            ]),
-                            TableOfContentsFilterType::IncludeWithChildren
-                        )),
-                    },
-                };
-                if let Some(dir) = dst_path.parent()
-                    && let Err(error) = std::fs::create_dir_all(dir) {
-                    eprintln!("Could not create dir {}: {}.", dir.display(), error);
-                };
-                let html = doc_to_html_string(&mut doc, &conf);
-                if !write_file(&dst_path, dst_path.display(), html) {
-                    return ExitCode::FAILURE;
-                }
-                let mut incodoc = String::new();
-                doc_out(&doc, &mut incodoc);
-                if !write_file(&inc_path, inc_path.display(), incodoc) {
-                    return ExitCode::FAILURE;
-                }
-                match bump_result {
-                    Some(version) => println!("New version: {}", print_version(&version)),
-                    None => println!("Version was not bumped up!"),
-                }
-            } else {
-                eprintln!("Could not find entry.");
-            }
+            update_entry(path, &version_bump, &mut entries, &config);
         }
     }
     let mut output = config.unparse();
@@ -208,6 +113,111 @@ fn main() -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+// returns true if ok, false if need to return with FAILURE
+fn update_entry(
+    path: String, version_bump: &str, entries: &mut Entries, config: &Config
+) -> bool {
+    if let Some(index) = entries.get_index(&path) {
+        let entry = &mut entries.entries[index];
+        let mut src_path = PathBuf::from(&config.src);
+        let mut dst_path = PathBuf::from(&config.dst);
+        src_path.push(&entry.path);
+        dst_path.push(&entry.path);
+        dst_path.set_extension("html");
+        let mut inc_path = dst_path.clone();
+        inc_path.set_extension("incodoc");
+        let base_path = if let Some(file_parent) = dst_path.parent()
+            && let Some(bp) = pathdiff::diff_paths(&config.dst, file_parent) {
+            bp
+        } else {
+            eprintln!("Could not compute base path!");
+            return false;
+        };
+        let mut css_path = PathBuf::from(&base_path);
+        css_path.push(&config.css);
+        let inc_rel_path = inc_path
+            .file_name()
+            .map(|os| os.to_str().unwrap_or(""))
+            .unwrap_or("");
+        let src = match read_file_into_string(&src_path) {
+            Ok(src) => src,
+            Err(err) => {
+                eprintln!("Could not open file {}: {}", src_path.display(), err);
+                return false;
+            },
+        };
+        let mut doc = parse_md_to_incodoc(&src);
+        let bump_result = entry.bump_version(version_bump);
+        let date = Local::now();
+        let date_2822 = date.to_rfc2822();
+        let date_unix = date.timestamp();
+        let date_footer = date.format("%Y-%m-%d %a");
+        let date_year = date.year();
+        doc.props.insert("version".to_string(), PropVal::String(entry.print_version()));
+        doc.props.insert("lang".to_string(), PropVal::String(config.lang.clone()));
+        doc.props.insert("author".to_string(), PropVal::String(config.author.clone()));
+        doc.props.insert("date-rfc2822".to_string(), PropVal::String(date_2822));
+        doc.props.insert("date-unix".to_string(), PropVal::String(date_unix.to_string()));
+        doc.props.insert(
+            "initial-version-date".to_string(), PropVal::String(entry.first_date.clone())
+        );
+        let header = build_header(&doc, inc_rel_path);
+        let footer = build_footer(
+            entry, &config.author, &date_footer.to_string(), date_year, entry.first_year
+        );
+        let conf = incodoc_to_html::config::Config {
+            include: Include::Augmented(header, footer),
+            header_links: vec![
+                HeaderLink::Css{ href: css_path.display().to_string() },
+                HeaderLink::General{
+                    rel: "alternate".to_string(),
+                    ltype: "text/incodoc".to_string(),
+                    href: inc_rel_path.to_string(),
+                },
+            ],
+            nav: NavConfig {
+                include: false,
+                close_top: true,
+                closed_depth: 1000,
+                position: Position::Bottom,
+            },
+            table_of_contents: TableOfContentsConfig {
+                closed: false,
+                include: TableOfContentsInclusion::IfSuggested,
+                position: Position::BeforeFirstSubSection,
+                filter: Some((
+                    HashSet::from([
+                        TableOfContentsItemType::Document,
+                        TableOfContentsItemType::Section,
+                        TableOfContentsItemType::FootnoteDefinition,
+                    ]),
+                    TableOfContentsFilterType::IncludeWithChildren
+                )),
+            },
+        };
+        if let Some(dir) = dst_path.parent()
+            && let Err(error) = std::fs::create_dir_all(dir) {
+            eprintln!("Could not create dir {}: {}.", dir.display(), error);
+        };
+        let html = doc_to_html_string(&mut doc, &conf);
+        if !write_file(&dst_path, dst_path.display(), html) {
+            return false;
+        }
+        let mut incodoc = String::new();
+        doc_out(&doc, &mut incodoc);
+        if !write_file(&inc_path, inc_path.display(), incodoc) {
+            return false;
+        }
+        match bump_result {
+            Some(version) => println!("New version: {}", print_version(&version)),
+            None => println!("Version was not bumped up!"),
+        }
+    } else {
+        eprintln!("Could not find entry.");
+    }
+    true
 }
 
 // returns false if failed
