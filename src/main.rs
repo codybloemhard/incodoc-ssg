@@ -39,6 +39,15 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    #[clap(short_flag = 'i', about = "Initialise a config file.")]
+    Init {
+        #[clap(long, help = "Set source directory.")]
+        src: Option<String>,
+        #[clap(long, help = "Set destination directory.")]
+        dst: Option<String>,
+        #[clap(long, help = "Set css directory (within destination directory!).")]
+        css: Option<String>,
+    },
     #[clap(short_flag = 'l', about = "List all entries.")]
     List,
     #[clap(short_flag = 'a', about = "Add entry.")]
@@ -67,58 +76,84 @@ enum Commands {
 
 fn main() -> ExitCode {
     let args = Args::parse();
-    let lines = read_lines(&args.path);
-    let (config, mut entries) = if let Some(res) = parse(lines) { res }
-    else { return ExitCode::FAILURE };
 
-    match args.command {
-        Commands::List => {
-            print!("{}", entries.list());
-        },
-        Commands::Add { path } => {
-            let path = normalise_path(path, &config);
-            if entries.add(path.clone()) {
-                println!("New entry added successfully.");
-                update_entry(path, "keep", &mut entries, &config);
-            } else {
-                eprintln!("Could not add entry: entry already exists!");
+    let (config, entries, init) = match args.command {
+        Commands::Init { src, dst, css } => {
+            let mut config = Config::default();
+            if let Some(src) = src {
+                config.src = src;
             }
-        },
-        Commands::Remove { path } => {
-            let path = normalise_path(path, &config);
-            if let Some(entry) = entries.remove(&path) {
-                println!("Removed this entry: ");
-                println!("{}", entry.pretty_print());
-                delete_files(&entry.path, &config.dst);
+            if let Some(dst) = dst {
+                config.dst = dst;
             }
-        },
-        Commands::Enable { path } => {
-            let path = normalise_path(path, &config);
-            if entries.set_enabled(&path, true) {
-                println!("Enabled successfully.");
-                update_entry(path, "keep", &mut entries, &config);
-            } else {
-                println!("Could not find entry.");
+            if let Some(css) = css {
+                config.css = normalise_path(css, &config);
             }
+            (config, Entries::default(), true)
         },
-        Commands::Disable { path } => {
-            let path = normalise_path(path, &config);
-            if entries.set_enabled(&path, false) {
-                println!("Disabled successfully.");
-                delete_files(&path, &config.dst);
-            } else {
-                println!("Could not find entry.");
+        x => {
+            let lines = read_lines(&args.path);
+            let (config, mut entries) = if let Some(res) = parse(lines) { res }
+            else { return ExitCode::FAILURE };
+
+            match x {
+                Commands::List => {
+                    print!("{}", entries.list());
+                },
+                Commands::Add { path } => {
+                    let path = normalise_path(path, &config);
+                    if entries.add(path.clone()) {
+                        println!("New entry added successfully.");
+                        update_entry(path, "keep", &mut entries, &config);
+                    } else {
+                        eprintln!("Could not add entry: entry already exists!");
+                    }
+                },
+                Commands::Remove { path } => {
+                    let path = normalise_path(path, &config);
+                    if let Some(entry) = entries.remove(&path) {
+                        println!("Removed this entry: ");
+                        println!("{}", entry.pretty_print());
+                        delete_files(&entry.path, &config.dst);
+                    }
+                },
+                Commands::Enable { path } => {
+                    let path = normalise_path(path, &config);
+                    if entries.set_enabled(&path, true) {
+                        println!("Enabled successfully.");
+                        update_entry(path, "keep", &mut entries, &config);
+                    } else {
+                        println!("Could not find entry.");
+                    }
+                },
+                Commands::Disable { path } => {
+                    let path = normalise_path(path, &config);
+                    if entries.set_enabled(&path, false) {
+                        println!("Disabled successfully.");
+                        delete_files(&path, &config.dst);
+                    } else {
+                        println!("Could not find entry.");
+                    }
+                },
+                Commands::Update { path, version_bump } => {
+                    let path = normalise_path(path, &config);
+                    update_entry(path, &version_bump, &mut entries, &config);
+                }
+                Commands::Init { .. } => { },
             }
+
+            (config, entries, false)
         },
-        Commands::Update { path, version_bump } => {
-            let path = normalise_path(path, &config);
-            update_entry(path, &version_bump, &mut entries, &config);
-        }
-    }
+    };
+
     let mut output = config.unparse();
     entries.unparse(&mut output);
     if !write_file(&args.path, &args.path, output) {
         return ExitCode::FAILURE;
+    }
+
+    if init {
+        println!("Make sure to finish by editing the config file!");
     }
 
     ExitCode::SUCCESS
@@ -360,15 +395,28 @@ impl Config {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            src: "/some/dir".to_string(),
+            dst: "/another/dir".to_string(),
+            css: "/another/dir/style.css".to_string(),
+            lang: "en".to_string(),
+            author: "Firstname Lastname".to_string(),
+        }
+    }
+}
+
 fn build_header(doc: &Doc, incodoc_url: &str) -> String {
     let mut header = String::new();
     header += "<header>";
     if !incodoc_url.is_empty() {
         header += "<a href=\"./";
         header += incodoc_url;
-        header += "\"> incodoc version</a> | ";
+        header += "\"> incodoc version</a>";
     }
     if let Some(nav) = doc.navs.first() && let Some(link) = nav.links.first() {
+        header += " | ";
         link_to_html(link, &mut header);
     }
     header += "</header>";
