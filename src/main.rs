@@ -70,11 +70,13 @@ fn main() -> ExitCode {
     let lines = read_lines(&args.path);
     let (config, mut entries) = if let Some(res) = parse(lines) { res }
     else { return ExitCode::FAILURE };
+
     match args.command {
         Commands::List => {
             print!("{}", entries.list());
         },
         Commands::Add { path } => {
+            let path = normalise_path(path, &config);
             if entries.add(path.clone()) {
                 println!("New entry added successfully.");
                 update_entry(path, "keep", &mut entries, &config);
@@ -83,6 +85,7 @@ fn main() -> ExitCode {
             }
         },
         Commands::Remove { path } => {
+            let path = normalise_path(path, &config);
             if let Some(entry) = entries.remove(&path) {
                 println!("Removed this entry: ");
                 println!("{}", entry.pretty_print());
@@ -90,6 +93,7 @@ fn main() -> ExitCode {
             }
         },
         Commands::Enable { path } => {
+            let path = normalise_path(path, &config);
             if entries.set_enabled(&path, true) {
                 println!("Enabled successfully.");
                 update_entry(path, "keep", &mut entries, &config);
@@ -98,6 +102,7 @@ fn main() -> ExitCode {
             }
         },
         Commands::Disable { path } => {
+            let path = normalise_path(path, &config);
             if entries.set_enabled(&path, false) {
                 println!("Disabled successfully.");
                 delete_files(&path, &config.dst);
@@ -106,6 +111,7 @@ fn main() -> ExitCode {
             }
         },
         Commands::Update { path, version_bump } => {
+            let path = normalise_path(path, &config);
             update_entry(path, &version_bump, &mut entries, &config);
         }
     }
@@ -221,6 +227,27 @@ fn update_entry(
         eprintln!("Could not find entry.");
     }
     true
+}
+
+fn normalise_path(path: String, config: &Config) -> String {
+    let path = if let Some(path) = path.strip_prefix(&config.src) {
+        path.to_string()
+    } else if let Some(path) = path.strip_prefix(&config.dst) {
+        path.to_string()
+    } else {
+        path
+    };
+    if let Some(path) = path.strip_suffix(".html") {
+        let mut path = path.to_string();
+        path.push_str(".md");
+        path
+    } else if let Some(path) = path.strip_suffix(".incodoc") {
+        let mut path = path.to_string();
+        path.push_str(".md");
+        path
+    } else {
+        path
+    }
 }
 
 // returns false if failed
