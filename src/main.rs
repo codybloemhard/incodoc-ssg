@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::fs::remove_file;
 use std::io::prelude::*;
+use std::io::BufReader;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::process::ExitCode;
@@ -30,6 +31,9 @@ use clap::{
 use chrono::{ Local, Datelike };
 
 use rss::ChannelBuilder;
+use rss::Channel;
+use rss::ItemBuilder;
+use rss::Item;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -99,7 +103,7 @@ fn main() -> ExitCode {
                 config.css = normalise_path(css, &config);
             }
             if let Some(link) = link {
-                config.link = normalise_path(link, &config);
+                config.link = link;
             }
             (config, Entries::default(), true, true)
         },
@@ -251,7 +255,7 @@ fn update_entry(
         doc.props.insert("version".to_string(), PropVal::String(entry.print_version()));
         doc.props.insert("lang".to_string(), PropVal::String(config.lang.clone()));
         doc.props.insert("author".to_string(), PropVal::String(config.author.clone()));
-        doc.props.insert("date-rfc2822".to_string(), PropVal::String(date_2822));
+        doc.props.insert("date-rfc2822".to_string(), PropVal::String(date_2822.clone()));
         doc.props.insert("date-unix".to_string(), PropVal::String(date_unix.to_string()));
         doc.props.insert(
             "initial-version-date".to_string(), PropVal::String(entry.first_date.clone())
@@ -322,6 +326,40 @@ fn update_entry(
             Some(version) => println!("New version: {}", print_version(&version)),
             None => println!("Version was not bumped up!"),
         }
+        if version_bump == "major" || version_bump == "minor" {
+            let mut link = config.link.clone();
+            link.push_str(&path);
+            link = link.strip_suffix(".md").unwrap_or(&link).to_string();
+            let mut incodoc_link = link.clone();
+            link.push_str(".html");
+            incodoc_link.push_str(".incodoc");
+            let item = ItemBuilder::default()
+                // .title(Some("".to_string()))
+                .link(Some(link))
+                .author(Some(config.author.clone()))
+                .pub_date(Some(date_2822))
+                .build();
+            let mut incodoc_item = item.clone();
+            incodoc_item.link = Some(incodoc_link);
+            let mut feed_path = PathBuf::from(&config.dst);
+            let mut incodoc_feed_path = PathBuf::from(&config.dst);
+            feed_path.push("feed.xml");
+            incodoc_feed_path.push("incodoc-feed.xml");
+            let write_channel = |fp: PathBuf, item: Item| {
+                if let Ok(feed_file) = File::open(&fp) {
+                    if let Ok(mut channel) = Channel::read_from(BufReader::new(feed_file)) {
+                        channel.items.push(item);
+                        write_file(&fp, fp.display(), channel.to_string());
+                    } else {
+                        eprintln!("Could not read RSS channel from file: {}", fp.display());
+                    }
+                } else {
+                    eprintln!("Could not open RSS feed file: {}", fp.display());
+                }
+            };
+            write_channel(feed_path, item);
+            write_channel(incodoc_feed_path, incodoc_item);
+        }
     } else {
         eprintln!("Could not find entry.");
     }
@@ -384,14 +422,14 @@ fn delete_file<P: AsRef<Path> + Display + Copy>(path: P) {
 fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
     let mut res = Entries::default();
     let mut iter = lines.into_iter().enumerate();
-    let src = parse_kv(iter.next(), "src")?;
-    let dst = parse_kv(iter.next(), "dst")?;
-    let css = parse_kv(iter.next(), "css")?;
-    let link = parse_kv(iter.next(), "link")?;
-    let lang = parse_kv(iter.next(), "lang")?;
-    let author = parse_kv(iter.next(), "author")?;
-    let title = parse_kv(iter.next(), "title")?;
-    let description = parse_kv(iter.next(), "description")?;
+    let src = parse_kv(iter.next(), "src", true)?;
+    let dst = parse_kv(iter.next(), "dst", true)?;
+    let css = parse_kv(iter.next(), "css", false)?;
+    let link = parse_kv(iter.next(), "link", true)?;
+    let lang = parse_kv(iter.next(), "lang", false)?;
+    let author = parse_kv(iter.next(), "author", false)?;
+    let title = parse_kv(iter.next(), "title", false)?;
+    let description = parse_kv(iter.next(), "description", false)?;
     for (i, line) in iter {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -419,23 +457,26 @@ fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
     ))
 }
 
-fn parse_kv(line: Option<(usize, String)>, key: &str) -> Option<String> {
+fn parse_kv(line: Option<(usize, String)>, key: &str, ensure_slash: bool) -> Option<String> {
     let (line_nr, line) = if let Some(l) = line { l }
     else {
         eprintln!("Expected line containing source.");
         return None;
     };
-    let mut split = line.split(':');
-    if let Some(k) = split.next() {
+    if let Some((k, v)) = line.split_once(':') {
         let k = k.trim();
         if k != key {
             eprintln!("Expected key {key} but found key {k} on line number {line_nr}.");
             return None;
         }
+        let mut value = v.trim().to_string();
+        if ensure_slash && !value.ends_with('/') {
+            value.push('/');
+        }
+        Some(value)
     } else {
-        return None;
+        None
     }
-    split.next().map(|v| { let r = v.trim(); r.to_string() })
 }
 
 struct Config {
