@@ -8,7 +8,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::fmt::Display;
 
-use simpleio::{ read_lines, read_file_into_string };
+use simpleio::{ read_lines, read_file_into_string, file_exists };
 
 use incodoc::PropVal;
 use incodoc::Doc;
@@ -29,6 +29,8 @@ use clap::{
 
 use chrono::{ Local, Datelike };
 
+use rss::ChannelBuilder;
+
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
@@ -45,8 +47,15 @@ enum Commands {
         src: Option<String>,
         #[clap(long, help = "Set destination directory.")]
         dst: Option<String>,
-        #[clap(long, help = "Set css directory (within destination directory!).")]
+        #[clap(long, help = "Set CSS path (within destination directory!).")]
         css: Option<String>,
+        #[clap(long, help = "Set website url (for RSS).")]
+        link: Option<String>,
+    },
+    #[clap(about = "Initialise an RSS feed file.")]
+    Rss {
+        #[clap(long, help = "Allow the overwriting of an existing RSS feed file.")]
+        force: bool,
     },
     #[clap(short_flag = 'l', about = "List all entries.")]
     List,
@@ -77,8 +86,8 @@ enum Commands {
 fn main() -> ExitCode {
     let args = Args::parse();
 
-    let (config, entries, init) = match args.command {
-        Commands::Init { src, dst, css } => {
+    let (config, entries, init, write) = match args.command {
+        Commands::Init { src, dst, css, link } => {
             let mut config = Config::default();
             if let Some(src) = src {
                 config.src = src;
@@ -89,16 +98,21 @@ fn main() -> ExitCode {
             if let Some(css) = css {
                 config.css = normalise_path(css, &config);
             }
-            (config, Entries::default(), true)
+            if let Some(link) = link {
+                config.link = normalise_path(link, &config);
+            }
+            (config, Entries::default(), true, true)
         },
         x => {
             let lines = read_lines(&args.path);
             let (config, mut entries) = if let Some(res) = parse(lines) { res }
             else { return ExitCode::FAILURE };
+            let mut write = true;
 
             match x {
                 Commands::List => {
                     print!("{}", entries.list());
+                    write = false;
                 },
                 Commands::Add { path } => {
                     let path = normalise_path(path, &config);
@@ -138,22 +152,53 @@ fn main() -> ExitCode {
                 Commands::Update { path, version_bump } => {
                     let path = normalise_path(path, &config);
                     update_entry(path, &version_bump, &mut entries, &config);
-                }
+                },
+                Commands::Rss { force } => {
+                    let date = Local::now();
+                    let date_2822 = date.to_rfc2822();
+                    let channel = ChannelBuilder::default()
+                        .title(&config.title)
+                        .link(&config.link)
+                        .description(&config.description)
+                        .language(Some(config.lang.clone()))
+                        .copyright(Some(config.author.clone()))
+                        .pub_date(Some(date_2822))
+                        .build().to_string();
+                    let mut feed_path = PathBuf::from(&config.dst);
+                    let mut incodoc_feed_path = PathBuf::from(&config.dst);
+                    feed_path.push("feed.xml");
+                    incodoc_feed_path.push("incodoc-feed.xml");
+                    if (!file_exists(&feed_path) && !file_exists(&incodoc_feed_path)) | force {
+                        if !write_file(&feed_path, feed_path.display(), channel.clone()) {
+                            return ExitCode::FAILURE;
+                        }
+                        if !write_file(&incodoc_feed_path, incodoc_feed_path.display(), channel) {
+                            return ExitCode::FAILURE;
+                        }
+                    } else {
+                        eprintln!("Could not overwrite RSS files without force.");
+                        return ExitCode::FAILURE;
+                    }
+                    write = false;
+                },
                 Commands::Init { .. } => { },
             }
 
-            (config, entries, false)
+            (config, entries, false, write)
         },
     };
 
-    let mut output = config.unparse();
-    entries.unparse(&mut output);
-    if !write_file(&args.path, &args.path, output) {
-        return ExitCode::FAILURE;
+    if write {
+        let mut output = config.unparse();
+        entries.unparse(&mut output);
+        if !write_file(&args.path, &args.path, output) {
+            return ExitCode::FAILURE;
+        }
     }
 
     if init {
-        println!("Make sure to finish by editing the config file!");
+        println!("Make sure to finish by editing the just generated config file!");
+        println!("After that you can run the rss command to generate a feed.");
     }
 
     ExitCode::SUCCESS
@@ -192,6 +237,10 @@ fn update_entry(
                 return false;
             },
         };
+        let mut feed_path = PathBuf::from(&config.dst);
+        feed_path.push("feed.xml");
+        let mut incodoc_feed_path = PathBuf::from(&config.dst);
+        incodoc_feed_path.push("incodoc-feed.xml");
         let mut doc = parse_md_to_incodoc(&src);
         let bump_result = entry.bump_version(version_bump);
         let date = Local::now();
@@ -211,16 +260,31 @@ fn update_entry(
         let footer = build_footer(
             entry, &config.author, &date_footer.to_string(), date_year, entry.first_year
         );
+        let mut header_links = vec![
+            HeaderLink::Css{ href: css_path.display().to_string() },
+            HeaderLink::General {
+                rel: "alternate".to_string(),
+                ltype: "text/incodoc".to_string(),
+                href: inc_rel_path.to_string(),
+            },
+        ];
+        if file_exists(&feed_path) {
+            header_links.push(HeaderLink::General {
+                rel: "alternate".to_string(),
+                ltype: "application/rss+xml".to_string(),
+                href: feed_path.display().to_string(),
+            });
+        }
+        if file_exists(&incodoc_feed_path) {
+            header_links.push(HeaderLink::General {
+                rel: "alternate".to_string(),
+                ltype: "incodoc/rss+xml".to_string(),
+                href: incodoc_feed_path.display().to_string(),
+            });
+        }
         let conf = incodoc_to_html::config::Config {
             include: Include::Augmented(header, footer),
-            header_links: vec![
-                HeaderLink::Css{ href: css_path.display().to_string() },
-                HeaderLink::General{
-                    rel: "alternate".to_string(),
-                    ltype: "text/incodoc".to_string(),
-                    href: inc_rel_path.to_string(),
-                },
-            ],
+            header_links,
             nav: NavConfig {
                 include: false,
                 close_top: true,
@@ -323,8 +387,11 @@ fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
     let src = parse_kv(iter.next(), "src")?;
     let dst = parse_kv(iter.next(), "dst")?;
     let css = parse_kv(iter.next(), "css")?;
+    let link = parse_kv(iter.next(), "link")?;
     let lang = parse_kv(iter.next(), "lang")?;
     let author = parse_kv(iter.next(), "author")?;
+    let title = parse_kv(iter.next(), "title")?;
+    let description = parse_kv(iter.next(), "description")?;
     for (i, line) in iter {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -342,8 +409,11 @@ fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
             src,
             dst,
             css,
+            link,
             lang,
             author,
+            title,
+            description,
         },
         res,
     ))
@@ -372,8 +442,11 @@ struct Config {
     src: String,
     dst: String,
     css: String,
+    link: String,
     lang: String,
     author: String,
+    title: String,
+    description: String,
 }
 
 impl Config {
@@ -388,8 +461,11 @@ impl Config {
         unparse_field(&mut res, "src", &self.src);
         unparse_field(&mut res, "dst", &self.dst);
         unparse_field(&mut res, "css", &self.css);
+        unparse_field(&mut res, "link", &self.link);
         unparse_field(&mut res, "lang", &self.lang);
         unparse_field(&mut res, "author", &self.author);
+        unparse_field(&mut res, "title", &self.title);
+        unparse_field(&mut res, "description", &self.description);
         res.push('\n');
         res
     }
@@ -401,8 +477,11 @@ impl Default for Config {
             src: "/some/dir".to_string(),
             dst: "/another/dir".to_string(),
             css: "/another/dir/style.css".to_string(),
+            link: "https://website.com".to_string(),
             lang: "en".to_string(),
             author: "Firstname Lastname".to_string(),
+            title: "Website of Firstname Lastname.".to_string(),
+            description: "Very interesting stuff.".to_string(),
         }
     }
 }

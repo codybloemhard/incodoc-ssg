@@ -21,4 +21,5 @@ simpleio = "0.2.3"
 clap = { version = "4.5.59", features = ["derive"] }
 pathdiff = "0.2.3"
 chrono = { version = "0.4.44", default-features = false, features = ["alloc", "std", "now", "clock"] }
+rss = "2.0.12"
 
