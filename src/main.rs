@@ -16,6 +16,8 @@ use incodoc::Doc;
 use incodoc::output::doc_out;
 use incodoc::actions::toc::TableOfContentsItemType;
 use incodoc::actions::toc::TableOfContentsFilterType;
+use incodoc::actions::prune::PruneIncodoc;
+use incodoc::actions::deemphasise::DeEmphasise;
 
 use md_to_incodoc::parse_md_to_incodoc;
 
@@ -246,6 +248,9 @@ fn update_entry(
         let mut incodoc_feed_path = PathBuf::from(&config.dst);
         incodoc_feed_path.push("incodoc-feed.xml");
         let mut doc = parse_md_to_incodoc(&src);
+        doc.prune_errors();
+        doc.squash();
+        doc.prune_contentless();
         let bump_result = entry.bump_version(version_bump);
         let date = Local::now();
         let date_2822 = date.to_rfc2822();
@@ -334,7 +339,17 @@ fn update_entry(
             link.push_str(".html");
             incodoc_link.push_str(".incodoc");
             let item = ItemBuilder::default()
-                // .title(Some("".to_string()))
+                .title(
+                    doc
+                    .first_heading()
+                    .map(|h| {
+                        let mut title = h.items.deemphasise();
+                        title.push_str(" v");
+                        title.push_str(&entry.print_version());
+                        title
+                    })
+                    .unwrap_or("couldn't get title!".to_string())
+                )
                 .link(Some(link))
                 .author(Some(config.author.clone()))
                 .pub_date(Some(date_2822))

@@ -10,11 +10,11 @@ description = "Static site generator using incodoc."
 categories = ["command-line-utilities"]
 
 [dependencies]
-incodoc = "0.6.2"
+incodoc = "0.7.0"
 # incodoc = { path = "../incodoc" }
 # incodoc-to-html = "0.1.0"
 incodoc-to-html = { path = "../incodoc-to-html" }
-md-to-incodoc = "0.3.1"
+md-to-incodoc = "0.3.2"
 # md-to-incodoc = { path = "../md-to-incodoc" }
 zen-colour = "1.1.2"
 simpleio = "0.2.3"
