@@ -1,41 +1,41 @@
-use std::fs::File;
-use std::fs::remove_file;
-use std::io::prelude::*;
-use std::io::BufReader;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::process::ExitCode;
-use std::path::Path;
-use std::path::PathBuf;
-use std::fmt::Display;
+use std::{
+    fs::{ File, remove_file },
+    io::{ prelude::*, BufReader },
+    collections::{ HashMap, HashSet },
+    path::{ Path, PathBuf },
+    process::ExitCode,
+    fmt::Display,
+};
 
 use simpleio::{ read_lines, read_file_into_string, file_exists };
 
-use incodoc::PropVal;
-use incodoc::Doc;
-use incodoc::output::doc_out;
-use incodoc::actions::toc::TableOfContentsItemType;
-use incodoc::actions::toc::TableOfContentsFilterType;
-use incodoc::actions::prune::PruneIncodoc;
-use incodoc::actions::deemphasise::DeEmphasise;
+use incodoc::{
+    PropVal, Doc,
+    output::doc_out,
+    actions::{
+        toc::{ TableOfContentsItemType, TableOfContentsFilterType },
+        prune::PruneIncodoc,
+        deemphasise::DeEmphasise,
+    },
+};
 
 use md_to_incodoc::parse_md_to_incodoc;
 
-use incodoc_to_html::doc_to_html_string;
-use incodoc_to_html::link_to_html;
-use incodoc_to_html::config::*;
+use incodoc_to_html::{ doc_to_html_string, link_to_html, config::* };
 
-use clap::{
-    Parser,
-    Subcommand,
-};
+use clap::{ Parser, Subcommand };
 
 use chrono::{ Local, Datelike };
 
-use rss::ChannelBuilder;
-use rss::Channel;
-use rss::ItemBuilder;
-use rss::Item;
+use rss::{ ChannelBuilder, Channel, ItemBuilder, Item };
+
+use zen_colour::*;
+
+const R: &str = RESET;
+const BO: &str = BOLD;
+const GR: &str = GREEN;
+const RE: &str = RED;
+const BL: &str = BLUE;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -123,36 +123,42 @@ fn main() -> ExitCode {
                 Commands::Add { path } => {
                     let path = normalise_path(path, &config);
                     if entries.add(path.clone()) {
-                        println!("New entry added successfully.");
+                        println!("{BO}{GR}success{R}: New entry added.");
                         update_entry(path, "keep", &mut entries, &config);
                     } else {
-                        eprintln!("Could not add entry: entry already exists!");
+                        eprintln!("{BO}{RE}failure{R}: Could not add entry: it already exists.");
+                        write = false;
                     }
                 },
                 Commands::Remove { path } => {
                     let path = normalise_path(path, &config);
                     if let Some(entry) = entries.remove(&path) {
-                        println!("Removed this entry: ");
+                        println!("{BO}{GR}success{R}: Removed this entry: ");
                         println!("{}", entry.pretty_print());
                         delete_files(&entry.path, &config.dst);
+                    } else {
+                        eprintln!("{BO}{RE}failure{R}: Could not find entry.");
+                        write = false;
                     }
                 },
                 Commands::Enable { path } => {
                     let path = normalise_path(path, &config);
                     if entries.set_enabled(&path, true) {
-                        println!("Enabled successfully.");
+                        println!("{BO}{GR}success{R}: Enabled.");
                         update_entry(path, "keep", &mut entries, &config);
                     } else {
-                        println!("Could not find entry.");
+                        eprintln!("{BO}{RE}failure{R}: Could not find entry.");
+                        write = false;
                     }
                 },
                 Commands::Disable { path } => {
                     let path = normalise_path(path, &config);
                     if entries.set_enabled(&path, false) {
-                        println!("Disabled successfully.");
+                        println!("{BO}{GR}success{R}: Disabled.");
                         delete_files(&path, &config.dst);
                     } else {
-                        println!("Could not find entry.");
+                        eprintln!("{BO}{RE}failure{R}: Could not find entry.");
+                        write = false;
                     }
                 },
                 Commands::Update { path, version_bump } => {
@@ -181,8 +187,11 @@ fn main() -> ExitCode {
                         if !write_file(&incodoc_feed_path, incodoc_feed_path.display(), channel) {
                             return ExitCode::FAILURE;
                         }
+                        println!("{BO}{GR}success{R}: generated RSS files.");
                     } else {
-                        eprintln!("Could not overwrite RSS files without force.");
+                        eprintln!(
+                            "{BO}{RE}failure{R}: Could not overwrite RSS files without force."
+                        );
                         return ExitCode::FAILURE;
                     }
                     write = false;
@@ -203,8 +212,12 @@ fn main() -> ExitCode {
     }
 
     if init {
-        println!("Make sure to finish by editing the just generated config file!");
-        println!("After that you can run the rss command to generate a feed.");
+        println!(
+            "   {YELLOW}{BO}note{R}: Make sure to finish by editing the just generated config file!"
+        );
+        println!(
+            "         After that you can run the rss command to generate a feed."
+        );
     }
 
     ExitCode::SUCCESS
@@ -227,7 +240,7 @@ fn update_entry(
             && let Some(bp) = pathdiff::diff_paths(&config.dst, file_parent) {
             bp
         } else {
-            eprintln!("Could not compute base path!");
+            eprintln!("{BO}{RE}failure{R}: Could not compute base path!");
             return false;
         };
         let mut css_path = PathBuf::from(&base_path);
@@ -239,7 +252,10 @@ fn update_entry(
         let src = match read_file_into_string(&src_path) {
             Ok(src) => src,
             Err(err) => {
-                eprintln!("Could not open file {}: {}", src_path.display(), err);
+                eprintln!(
+                    "{BO}{RE}failure{R}: Could not open file {BO}{BL}{}{R}: {RE}{}{R}.",
+                    src_path.display(), err
+                );
                 return false;
             },
         };
@@ -316,7 +332,10 @@ fn update_entry(
         };
         if let Some(dir) = dst_path.parent()
             && let Err(error) = std::fs::create_dir_all(dir) {
-            eprintln!("Could not create dir {}: {}.", dir.display(), error);
+            eprintln!(
+                "{BO}{RE}failure{R}: Could not create dir {BO}{BL}{}{R}: {RE}{}{R}.",
+                dir.display(), error
+            );
         };
         let html = doc_to_html_string(&mut doc, &conf);
         if !write_file(&dst_path, dst_path.display(), html) {
@@ -328,8 +347,13 @@ fn update_entry(
             return false;
         }
         match bump_result {
-            Some(version) => println!("New version: {}", print_version(&version)),
-            None => println!("Version was not bumped up!"),
+            Some(version) => println!(
+                "   {BO}info{R}: New version: {BO}{BL}{}{R}.",
+                print_version(&version)
+            ),
+            None => println!(
+                "   {BO}info{R}: Version was {BO}not{R} bumped up!"
+            ),
         }
         if version_bump == "major" || version_bump == "minor" {
             let mut link = config.link.clone();
@@ -366,17 +390,23 @@ fn update_entry(
                         channel.items.push(item);
                         write_file(&fp, fp.display(), channel.to_string());
                     } else {
-                        eprintln!("Could not read RSS channel from file: {}", fp.display());
+                        eprintln!(
+                        "{BO}{RE}failure{R}: Could not read RSS channel from file: {BO}{BL}{}{R}.",
+                            fp.display()
+                        );
                     }
                 } else {
-                    eprintln!("Could not open RSS feed file: {}", fp.display());
+                    eprintln!(
+                        "{BO}{RE}failure{R}: Could not open RSS feed file: {BO}{BL}{}{R}.",
+                        fp.display()
+                    );
                 }
             };
             write_channel(feed_path, item);
             write_channel(incodoc_feed_path, incodoc_item);
         }
     } else {
-        eprintln!("Could not find entry.");
+        eprintln!("{BO}{RE}failure{R}: Could not find entry.");
     }
     true
 }
@@ -406,14 +436,14 @@ fn normalise_path(path: String, config: &Config) -> String {
 fn write_file<P: AsRef<Path>, D: Display>(file_path: P, display: D, contents: String) -> bool {
     let mut file = if let Ok(file) = File::create(&file_path) { file }
     else {
-        eprintln!("Could not open file {} for writing", display);
+        eprintln!("{BO}{RE}failure{R}: Could not open file {BO}{BL}{}{R} for writing.", display);
         return false;
     };
     if file.write_all(&contents.into_bytes()).is_err() {
-        eprintln!("Could not write to file {}!", display);
+        eprintln!("{BO}{RE}failure{R}: Could not write to file {BO}{BL}{}{R}.", display);
         return false;
     }
-    println!("Output written successfully to {}.", display);
+    println!("{BO}{GR}success{R}: Output written to {BO}{BL}{}{R}.", display);
     true
 }
 
@@ -429,8 +459,11 @@ fn delete_files(path: &str, base: &str) {
 
 fn delete_file<P: AsRef<Path> + Display + Copy>(path: P) {
     match remove_file(path) {
-        Ok(_) => println!("Deleted file: {}", path),
-        Err(error) => eprintln!("Could not delete file {}: {}", path, error),
+        Ok(_) => println!("{BO}{GR}success{R}: Deleted file: {BO}{BL}{}{R}.", path),
+        Err(error) => eprintln!(
+            "{BO}{RE}failure{R}: Could not delete file {BO}{BL}{}{R}: {RE}{}{R}.",
+            path, error
+        ),
     }
 }
 
@@ -450,7 +483,7 @@ fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if let Some(entry) = Entry::from_line(line, i) {
+        if let Some(entry) = Entry::from_line(line, i + 1) {
             let path = entry.path.clone();
             res.entries.push(entry);
             let index = res.entries.len() - 1;
@@ -473,15 +506,18 @@ fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
 }
 
 fn parse_kv(line: Option<(usize, String)>, key: &str, ensure_slash: bool) -> Option<String> {
-    let (line_nr, line) = if let Some(l) = line { l }
+    let (mut line_nr, line) = if let Some(l) = line { l }
     else {
-        eprintln!("Expected line containing source.");
+        eprintln!("{BO}{RE}failure{R}: Expected line containing {BO}{BL}{key}{R}.");
         return None;
     };
+    line_nr += 1;
     if let Some((k, v)) = line.split_once(':') {
         let k = k.trim();
         if k != key {
-            eprintln!("Expected key {key} but found key {k} on line number {line_nr}.");
+            eprintln!(
+"{BO}{RE}failure{R}: Expected key {BO}{BL}{key}{R} but found key {BO}{BL}{k}{R} on line number {BO}{line_nr}{RE}."
+            );
             return None;
         }
         let mut value = v.trim().to_string();
@@ -642,7 +678,7 @@ impl Entry {
             let path = path.trim();
             path.to_string()
         } else {
-            eprintln!("Could not get path on line {line_nr}!");
+            eprintln!("{BO}{RE}failure{R}: Could not get {BO}path{R} on line {BO}{line_nr}{R}.");
             return None;
         };
         let version = if let Some(version_raw) = split.next() {
@@ -651,36 +687,48 @@ impl Entry {
                 let major_raw = major_raw.trim();
                 if let Ok(major) = major_raw.parse::<usize>() { major }
                 else {
-                    eprintln!("Could not parse version major on line {line_nr}!");
+                    eprintln!(
+                "{BO}{RE}failure{R}: Could not parse {BO}version major{R} on line {BO}{line_nr}{R}."
+                    );
                     return None;
                 }
             } else {
-                eprintln!("Could not get version major on line {line_nr}!");
+                eprintln!(
+                "{BO}{RE}failure{R}: Could not get {BO}version major{R} on line {BO}{line_nr}{R}."
+                );
                 return None;
             };
             let minor = if let Some(minor_raw) = split.next() {
                 if let Ok(minor) = minor_raw.parse::<usize>() { minor }
                 else {
-                    eprintln!("Could not parse version minor on line {line_nr}!");
+                    eprintln!(
+                "{BO}{RE}failure{R}: Could not parse {BO}version minor{R} on line {BO}{line_nr}{R}."
+                        );
                     return None;
                 }
             } else {
-                eprintln!("Could not get version minor on line {line_nr}!");
+                eprintln!(
+                    "{BO}{RE}failure{R}: Could not get {BO}version minor{R} on line {BO}{line_nr}{R}."
+                );
                 return None;
             };
             let patch = if let Some(patch_raw) = split.next() {
                 if let Ok(patch) = patch_raw.parse::<usize>() { patch }
                 else {
-                    eprintln!("Could not parse version patch on line {line_nr}!");
+                    eprintln!(
+                "{BO}{RE}failure{R}: Could not parse {BO}version patch{R} on line {BO}{line_nr}{R}."
+                    );
                     return None;
                 }
             } else {
-                eprintln!("Could not get version patch on line {line_nr}!");
+                eprintln!(
+                "{BO}{RE}failure{R}: Could not get {BO}version patch{R} on line {BO}{line_nr}{R}."
+                );
                 return None;
             };
             (major, minor, patch)
         } else {
-            eprintln!("Could not get version on line {line_nr}!");
+            eprintln!("{BO}{RE}failure{R}: Could not get {BO}version{R} on line {BO}{line_nr}{R}.");
             return None;
         };
         let enabled = if let Some(enabled_raw) = split.next() {
@@ -690,23 +738,29 @@ impl Entry {
             } else if enabled_raw == "disabled" {
                 false
             } else {
-                eprintln!("Could not parse enabled on line {line_nr}!");
+                eprintln!(
+                    "{BO}{RE}failure{R}: Could not parse {BO}enabled{R} on line {BO}{line_nr}{R}."
+                );
                 return None;
             }
         } else {
-            eprintln!("Could not get enabled on line {line_nr}!");
+            eprintln!("{BO}{RE}failure{R}: Could not get {BO}enabled{R} on line {BO}{line_nr}{R}.");
             return None;
         };
         let first_date = if let Some(first_date_raw) = split.next() {
             first_date_raw.trim().to_string()
         } else {
-            eprintln!("Could not get first date on line {line_nr}!");
+            eprintln!(
+                "{BO}{RE}failure{R}: Could not get {BO}first date{R} on line {BO}{line_nr}{R}."
+            );
             return None;
         };
         let first_year = if let Ok(first_year) = first_date[0..4].parse::<i32>() {
             first_year
         } else {
-            eprintln!("Could not parse first year on line {line_nr}!");
+            eprintln!(
+                "{BO}{RE}failure{R}: Could not parse {BO}first year{R} on line {BO}{line_nr}{R}."
+            );
             return None;
         };
         Some(Entry {
