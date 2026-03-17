@@ -121,7 +121,7 @@ fn main() -> ExitCode {
                     let path = normalise_path(path, &config);
                     if entries.add(path.clone()) {
                         println!("{BO}{GR}success{R}: New entry added.");
-                        update_entry(path, "keep", &mut entries, &config);
+                        update_entry(path, "new", &mut entries, &config);
                     } else {
                         eprintln!("{BO}{RE}failure{R}: Could not add entry: it already exists.");
                         write = false;
@@ -352,7 +352,7 @@ fn update_entry(
                 "   {BO}info{R}: Version was {BO}not{R} bumped up!"
             ),
         }
-        if version_bump == "major" || version_bump == "minor" {
+        if version_bump == "major" || version_bump == "minor" || version_bump == "new" {
             let mut link = config.link.clone();
             link.push_str(&path);
             link = link.strip_suffix(".md").unwrap_or(&link).to_string();
