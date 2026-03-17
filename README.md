@@ -32,6 +32,7 @@ Features that might come in the future:
 
 - manage archived pages that are citeable
 - rendered code blocks (show code with no JS)
+- improve internal link handling
 
 ## Usage
 
@@ -85,6 +86,94 @@ To add your first page, let's say `index.md`, we run the `add` command:
 
 This will add the page to the config file and generate the output.
 
+### Further use
+
+Now you can add more pages to your website.
+You can list all entries in the config with `incodoc-ssg conf list`.
+The remaining commands are `remove`, `enable`, `disable` and `update`.
+All of these take one argument to a page like this: `incodoc-ssg conf remove ~/dst/page.html`.
+When specifying the page, you can give the path to the source file (markdown) or to either the
+HTML or the incodoc destination file.
+It all does the same, so pick whatever is easiest in your case.
+`remove` removes the entry from the list in the config and deletes the files in destination.
+`disable` removes the files in destination but leaves the entry in disabled mode.
+`enable` enables an entry again and generates the files back into destination.
+
+After having changed a source document, you can run `update` to generate the new version in the
+destination directory.
+`update` comes with an extra argument: the version bump.
+You can choose between `major`, `minor`, `patch` or anything else like `keep`.
+The first three bump the respective section of the version by one.
+Anything else, like `keep`. keeps the version the same.
+Except for `new`.
+This is used internally when you use `add`.
+It will keep the version the same but it will update the RSS files.
+Other than that `major` and `minor` also generate a new item in the RSS files.
+`patch` or `keep` do not.
+
+### Document writing
+
+You can use incodoc features like metadata.
+Here is an example:
+
+```md
++++
+prop table-of-contents include
+
+nav
+    link up to parent page $ ./../index.html
+end
++++
+
+# Document heading
+
+some text...
+```
+
+Here we set the property that suggests the use of a table of contents.
+We do not dictate the look and behaviour of a document in incodoc, so this is an suggestion.
+This SSG program will take that suggestion however when generating HTML pages.
+It will also check if there is navigation data, and if there is it will take the first link
+and put it up in the header of HTML version.
+In the example, we use it to link back up to the top page from one directory down.
+
+One limitation is that when using links in the document to point to other documents, you need to
+give a literal link. This means using a .html suffix to link to make the HTML website work.
+If you link to the .md in the source, it won't work.
+This means that the incodoc version of pages also link to the HTML versions.
+This might be improved in the future.
+
+### Incodoc versions of pages
+
+The HTML version of pages have small niceties like naming the version and date and author in the
+footer, having a header with a link and generating a table of contents when suggested.
+In incodoc versions, the data that is used to generate these features is instead plainly put
+into the document.
+The renderer will decide what it does with that.
+This is the spirit of incodoc.
+The document consumer will have their preferred way of having (or not) a table of contents,
+how to navigate and where to display the author and dates (and in what format).
+
+An example of the incodoc data that is inserted into the generated incodoc:
+
+```
+props {
+    ("date-rfc2822", "Tue, 17 Mar 2026 18:26:59 +0100"),
+    ("author", "Cody Bloemhard"),
+    ("date-unix", "1773768419"),
+    ("table-of-contents", "include"),
+    ("initial-version-date", "2026-03-11 Wed"),
+    ("version", "0.3.0"),
+    ("lang", "en"),
+},
+nav {
+    link {
+        "./../index.html",
+        "up to parent page",
+    },
+},
+```
+ 
 ## Development
 
 incodoc-ssg is build upon:
