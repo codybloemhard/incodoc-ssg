@@ -55,8 +55,6 @@ enum Commands {
         dst: Option<String>,
         #[clap(long, help = "Set CSS path (within destination directory!).")]
         css: Option<String>,
-        #[clap(long, help = "Set website url (for RSS).")]
-        link: Option<String>,
     },
     #[clap(about = "Initialise an RSS feed file.")]
     Rss {
@@ -93,7 +91,7 @@ fn main() -> ExitCode {
     let args = Args::parse();
 
     let (config, entries, init, write) = match args.command {
-        Commands::Init { src, dst, css, link } => {
+        Commands::Init { src, dst, css } => {
             let mut config = Config::default();
             if let Some(src) = src {
                 config.src = src;
@@ -101,18 +99,17 @@ fn main() -> ExitCode {
             if let Some(dst) = dst {
                 config.dst = dst;
             }
+            config.normalise_paths();
             if let Some(css) = css {
                 config.css = normalise_path(css, &config);
-            }
-            if let Some(link) = link {
-                config.link = link;
             }
             (config, Entries::default(), true, true)
         },
         x => {
             let lines = read_lines(&args.path);
-            let (config, mut entries) = if let Some(res) = parse(lines) { res }
+            let (mut config, mut entries) = if let Some(res) = parse(lines) { res }
             else { return ExitCode::FAILURE };
+            config.normalise_paths();
             let mut write = true;
 
             match x {
@@ -470,14 +467,14 @@ fn delete_file<P: AsRef<Path> + Display + Copy>(path: P) {
 fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
     let mut res = Entries::default();
     let mut iter = lines.into_iter().enumerate();
-    let src = parse_kv(iter.next(), "src", true)?;
-    let dst = parse_kv(iter.next(), "dst", true)?;
-    let css = parse_kv(iter.next(), "css", false)?;
-    let link = parse_kv(iter.next(), "link", true)?;
-    let lang = parse_kv(iter.next(), "lang", false)?;
-    let author = parse_kv(iter.next(), "author", false)?;
-    let title = parse_kv(iter.next(), "title", false)?;
-    let description = parse_kv(iter.next(), "description", false)?;
+    let src = parse_kv(iter.next(), "src")?;
+    let dst = parse_kv(iter.next(), "dst")?;
+    let css = parse_kv(iter.next(), "css")?;
+    let link = parse_kv(iter.next(), "link")?;
+    let lang = parse_kv(iter.next(), "lang")?;
+    let author = parse_kv(iter.next(), "author")?;
+    let title = parse_kv(iter.next(), "title")?;
+    let description = parse_kv(iter.next(), "description")?;
     for (i, line) in iter {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -505,7 +502,7 @@ fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
     ))
 }
 
-fn parse_kv(line: Option<(usize, String)>, key: &str, ensure_slash: bool) -> Option<String> {
+fn parse_kv(line: Option<(usize, String)>, key: &str) -> Option<String> {
     let (mut line_nr, line) = if let Some(l) = line { l }
     else {
         eprintln!("{BO}{RE}failure{R}: Expected line containing {BO}{BL}{key}{R}.");
@@ -520,11 +517,7 @@ fn parse_kv(line: Option<(usize, String)>, key: &str, ensure_slash: bool) -> Opt
             );
             return None;
         }
-        let mut value = v.trim().to_string();
-        if ensure_slash && !value.ends_with('/') {
-            value.push('/');
-        }
-        Some(value)
+        Some(v.trim().to_string())
     } else {
         None
     }
@@ -561,6 +554,17 @@ impl Config {
         res.push('\n');
         res
     }
+
+    fn normalise_paths(&mut self) {
+        fn normalise(s: &mut String) {
+            if !s.ends_with('/') {
+                s.push('/');
+            }
+        }
+        normalise(&mut self.src);
+        normalise(&mut self.dst);
+        normalise(&mut self.link);
+    }
 }
 
 impl Default for Config {
@@ -568,7 +572,7 @@ impl Default for Config {
         Self {
             src: "/some/dir".to_string(),
             dst: "/another/dir".to_string(),
-            css: "/another/dir/style.css".to_string(),
+            css: "style.css".to_string(),
             link: "https://website.com".to_string(),
             lang: "en".to_string(),
             author: "Firstname Lastname".to_string(),

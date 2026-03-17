@@ -73,6 +73,11 @@ These are `--src`, `--dst` and `--css`.
 For example: `incodoc-ssg conf init --src ~/src`.
 This helps you set these paths correctly by being able to use your shell's autocomplete for paths.
 
+The CSS field requires a path to a file within the destination directory.
+So if you have `~/dst` as a destination, and `~/dst/style.css` as a style sheet, the CSS field
+needs to be `style.css` and not `~/dst/style.css`.
+If you use `incodoc-ssg conf init --dst ~/dst --css ~/dst/css.style` it will take care of it.
+
 After having done that, you can optionally run `incodoc-ssg conf rss` to create the RSS feeds.
 
 To add your first page, let's say `index.md`, we run the `add` command:
