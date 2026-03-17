@@ -1,27 +1,84 @@
 # incodoc-ssg
 
-Static site generator (SSG) using incodoc. Early stages WIP.
+Static site generator (SSG) using incodoc.
 
 Incodoc is an incorporeal document format.
 For more see: <https://github.com/codybloemhard/incodoc>
 
-1. should take in markdown and/or incodoc
-2. do its thing
-3. output html and/or incodoc for deployment
+Write pages in incodoc compatible markdown and export it as a minimalistic website.
 
 ## Features
 
-Features are projected to include:
-
+- easy to set up
 - commit files into production
+  - choose which pages will be in the end result
+  - remove, enable and disable them easily
 - manage dates and versions of pages
-- manage archived pages that are citeable
-- warning for dangling pages
-- generates purely static incodoc and html/css pages
-- generate rss feed
-- simple header and footer
+  - bump version as you update pages
+  - dates and versions are inserted into the documents
+- generates purely static pages
+  - generates both a HTML+CSS page and an incodoc page
+  - HTML `link` points to the alternate incodoc version
+- generate RSS feed
+  - two feeds: one for HTML+CSS pages and one for incodoc pages
+  - feeds updated on page updates
+- minimalistic header and footer
+  - header with a navigation link and link to incodoc version
+  - footer with copyright, version and date
 - simple configuration file
-- path prefix for input and output of maps
+- simple CLI interface and coloured output
+
+Features that might come in the future:
+
+- manage archived pages that are citeable
+- rendered code blocks (show code with no JS)
+
+## Usage
+
+### Setting up
+
+Simple things to know:
+
+- config file: keeps track of everything
+- source: directory where you have your input documents (in markdown)
+- destination: directory where the output will be generated
+
+I suppose you have some kind of source directory, e.g. `~/src`.
+Make sure you have a destination directory, e.g. `mkdir ~/dst`.
+
+Initiate a config file.
+In this example the file is called `conf`.
+This config file may be present next to the source, destination or somewhere completely else.
+You can generate it like this: `incodoc-ssg conf init`;
+
+It looks like this:
+
+```
+src: /some/dir
+dst: /another/dir
+css: style.css
+link: https://website.com
+lang: en
+author: Firstname Lastname
+title: Website of Firstname Lastname.
+description: Very interesting stuff.
+```
+
+Finish the configuration by replacing the default values with your own.
+The parsing is very minimal, so make sure not to change anything.
+Keep everything in the same order, just replace the values.
+
+To help with getting things right, there are flags in `init` to immediately set some fields.
+These are `--src`, `--dst` and `--css`.
+For example: `incodoc-ssg conf init --src ~/src`.
+This helps you set these paths correctly by being able to use your shell's autocomplete for paths.
+
+After having done that, you can optionally run `incodoc-ssg conf rss` to create the RSS feeds.
+
+To add your first page, let's say `index.md`, we run the `add` command:
+`incodoc-ssg conf add ~/src/index.md`.
+
+This will add the page to the config file and generate the output.
 
 ## Development
 
