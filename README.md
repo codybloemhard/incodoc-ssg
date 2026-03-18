@@ -113,7 +113,9 @@ Other than that `major` and `minor` also generate a new item in the RSS files.
 
 ### Document writing
 
-You can use incodoc features like metadata.
+#### Metadata
+
+You can use incodoc metadata.
 Here is an example:
 
 ```md
@@ -137,11 +139,13 @@ It will also check if there is navigation data, and if there is it will take the
 and put it up in the header of HTML version.
 In the example, we use it to link back up to the top page from one directory down.
 
-One limitation is that when using links in the document to point to other documents, you need to
-give a literal link. This means using a .html suffix to link to make the HTML website work.
-If you link to the .md in the source, it won't work.
-This means that the incodoc version of pages also link to the HTML versions.
-This might be improved in the future.
+#### Links
+
+Local links to .md documents are taken to be links to other pages that will be published.
+These links have to start with `./` e.g. `./../other-dir/other-page.md`.
+It will take links that start with `./` and replaces the first `.md` with another extension.
+This way you can link to `.md` in your writings, but generated HTML pages link to generated
+HTML pages and generated incodoc pages link to generated incodoc pages.
 
 ### Incodoc versions of pages
 
