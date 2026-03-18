@@ -602,7 +602,7 @@ fn build_header(doc: &Doc, incodoc_url: &str) -> String {
     let mut header = String::new();
     header += "<header>";
     if !incodoc_url.is_empty() {
-        header += "<a href=\"./";
+        header += "<a class=\"local\" href=\"./";
         header += incodoc_url;
         header += "\"> incodoc version</a>";
     }
