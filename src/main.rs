@@ -10,7 +10,7 @@ use std::{
 use simpleio::{ read_lines, read_file_into_string, file_exists };
 
 use incodoc::{
-    PropVal, Doc,
+    PropVal, Doc, Nav,
     output::doc_out,
     actions::{
         toc::{ TableOfContentsItemType, TableOfContentsFilterType },
@@ -278,6 +278,9 @@ fn update_entry(
         doc.props.insert(
             "initial-version-date".to_string(), PropVal::String(entry.first_date.clone())
         );
+        let mut incodoc_doc = doc.clone();
+        replace_nav_links(&mut doc.navs, ".html");
+        replace_nav_links(&mut incodoc_doc.navs, ".incodoc");
         let header = build_header(&doc, inc_rel_path);
         let footer = build_footer(
             entry, &config.author, &date_footer.to_string(), date_year, entry.first_year
@@ -339,7 +342,7 @@ fn update_entry(
             return false;
         }
         let mut incodoc = String::new();
-        doc_out(&doc, &mut incodoc);
+        doc_out(&incodoc_doc, &mut incodoc);
         if !write_file(&inc_path, inc_path.display(), incodoc) {
             return false;
         }
@@ -426,6 +429,21 @@ fn normalise_path(path: String, config: &Config) -> String {
         path
     } else {
         path
+    }
+}
+
+fn replace_nav_links(navs: &mut Vec<Nav>, replacement: &str) {
+    for nav in navs {
+        for link in &mut nav.links {
+            local_link_replacement(&mut link.url, replacement);
+        }
+        replace_nav_links(&mut nav.subs, replacement);
+    }
+}
+
+fn local_link_replacement(path: &mut String, replacement: &str) {
+    if path.starts_with(".") {
+        *path = path.replacen(".md", replacement, 1);
     }
 }
 
