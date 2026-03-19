@@ -10,7 +10,7 @@ use std::{
 use simpleio::{ read_lines, read_file_into_string, file_exists };
 
 use incodoc::{
-    PropVal, Doc,
+    PropVal, Doc, EmOrText,
     output::doc_out,
     actions::{
         toc::{ TableOfContentsItemType, TableOfContentsFilterType },
@@ -279,8 +279,8 @@ fn update_entry(
             "initial-version-date".to_string(), PropVal::String(entry.first_date.clone())
         );
         let mut incodoc_doc = doc.clone();
-        replace_local_links(&mut doc, ".html");
-        replace_local_links(&mut incodoc_doc, ".incodoc");
+        replace_local_links(&mut doc, ".html", config);
+        replace_local_links(&mut incodoc_doc, ".incodoc", config);
         let header = build_header(&doc, inc_rel_path);
         let footer = build_footer(
             entry, &config.author, &date_footer.to_string(), date_year, entry.first_year
@@ -436,11 +436,16 @@ fn normalise_path(path: String, config: &Config) -> String {
     }
 }
 
-fn replace_local_links(doc: &mut Doc, replacement: &str) {
+fn replace_local_links(doc: &mut Doc, replacement: &str, config: &Config) {
     for link in doc.links_mut(true) {
         if link.url.starts_with(".") {
             link.url = link.url.replacen(".md", replacement, 1);
             link.tags.insert("local".to_string());
+        } else if config.trim_https_prefix
+            && let Some(EmOrText::Text(ltext)) = link.items.first_mut()
+            && let Some(res) = ltext.strip_prefix("https://")
+        {
+            *ltext = res.to_string();
         }
     }
 }
@@ -491,6 +496,15 @@ fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
     let author = parse_kv(iter.next(), "author")?;
     let title = parse_kv(iter.next(), "title")?;
     let description = parse_kv(iter.next(), "description")?;
+    let trim = parse_kv(iter.next(), "trim-https-prefix")?;
+    let trim_https_prefix = if &trim == "true" {
+        true
+    } else if &trim == "false" {
+        false
+    } else {
+        eprintln!("{BO}{RE}failure{R}: trim-https-prefix must be either \"true\" or \"false\".");
+        return None;
+    };
     for (i, line) in iter {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -513,6 +527,7 @@ fn parse(lines: Vec<String>) -> Option<(Config, Entries)> {
             author,
             title,
             description,
+            trim_https_prefix,
         },
         res,
     ))
@@ -535,6 +550,7 @@ fn parse_kv(line: Option<(usize, String)>, key: &str) -> Option<String> {
         }
         Some(v.trim().to_string())
     } else {
+        eprintln!("{BO}{RE}failure{R}: Expected line containing {BO}{BL}{key}{R} on line number {BO}{line_nr}{RE}.");
         None
     }
 }
@@ -548,6 +564,7 @@ struct Config {
     author: String,
     title: String,
     description: String,
+    trim_https_prefix: bool,
 }
 
 impl Config {
@@ -567,6 +584,8 @@ impl Config {
         unparse_field(&mut res, "author", &self.author);
         unparse_field(&mut res, "title", &self.title);
         unparse_field(&mut res, "description", &self.description);
+        let trim_value = if self.trim_https_prefix { "true" } else { "false" };
+        unparse_field(&mut res, "trim-https-prefix", trim_value);
         res.push('\n');
         res
     }
@@ -594,6 +613,7 @@ impl Default for Config {
             author: "Firstname Lastname".to_string(),
             title: "Website of Firstname Lastname.".to_string(),
             description: "Very interesting stuff.".to_string(),
+            trim_https_prefix: true,
         }
     }
 }
