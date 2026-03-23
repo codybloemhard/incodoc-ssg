@@ -147,6 +147,10 @@ It will take links that start with `./` and replaces the first `.md` with anothe
 This way you can link to `.md` in your writings, but generated HTML pages link to generated
 HTML pages and generated incodoc pages link to generated incodoc pages.
 
+The `https://` prefix can be trimmed out of the display text of links automatically.
+Enable this by setting `trim-https-prefix: true`.
+This is so that you can use `<link>` in your markdown and have it displayed a bit cleaner.
+
 ### Incodoc versions of pages
 
 The HTML version of pages have small niceties like naming the version and date and author in the
@@ -169,6 +173,7 @@ props {
     ("initial-version-date", "2026-03-11 Wed"),
     ("version", "0.3.0"),
     ("lang", "en"),
+    ("generator", "incodoc-ssg"),
 },
 nav {
     link {

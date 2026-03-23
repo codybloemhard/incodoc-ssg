@@ -270,6 +270,7 @@ fn update_entry(
         let date_unix = date.timestamp();
         let date_footer = date.format("%Y-%m-%d %a");
         let date_year = date.year();
+        doc.props.insert("generator".to_string(), PropVal::String("incodoc-ssg".to_string()));
         doc.props.insert("version".to_string(), PropVal::String(entry.print_version()));
         doc.props.insert("lang".to_string(), PropVal::String(config.lang.clone()));
         doc.props.insert("author".to_string(), PropVal::String(config.author.clone()));
