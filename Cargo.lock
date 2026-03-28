@@ -387,9 +387,9 @@ dependencies = [
 
 [[package]]
 name = "incodoc-to-html"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2a325bfbb022d0da20aba2d2ed0c76fe4546b6ae78d2669ff1712e253f078d4"
+checksum = "fede19185d10f81764d86972d5bd68622490f0ebd7620ac6cb8c47185a9b1e76"
 dependencies = [
  "incodoc",
 ]
@@ -424,9 +424,9 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "md-to-incodoc"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "797bb951c7559df240e57f627af195a7458febfb38624091a864a9b9ed55f464"
+checksum = "52e000cb577eac80308b444c7f11fd16d6310d106bf11d229b1ccfb45041dee2"
 dependencies = [
  "incodoc",
  "pulldown-cmark",

@@ -32,7 +32,6 @@ Features that might come in the future:
 
 - manage archived pages that are citeable
 - rendered code blocks (show code with no JS)
-- improve internal link handling
 
 ## Usage
 

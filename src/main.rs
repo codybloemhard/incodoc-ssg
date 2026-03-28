@@ -333,7 +333,9 @@ fn update_entry(
             links: LinksConfig {
                 local_links_open_in_blank: false,
                 footnote_ref_links_open_in_blank: false,
+                footnote_ref_prefix: "".to_string(),
             },
+            paragraphs: ParagraphsConfig::JustSmallParagraphs,
         };
         if let Some(dir) = dst_path.parent()
             && let Err(error) = std::fs::create_dir_all(dir) {
@@ -832,7 +834,7 @@ impl Entries {
         let mut res = String::new();
         for entry in &self.entries {
             res.push_str(&entry.pretty_print());
-            res.push_str("\n\n");
+            res.push_str("\n");
         }
         res.pop();
         res
