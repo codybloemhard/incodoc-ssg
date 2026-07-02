@@ -444,6 +444,8 @@ fn replace_local_links(doc: &mut Doc, replacement: &str, config: &Config) {
         if link.url.starts_with(".") {
             link.url = link.url.replacen(".md", replacement, 1);
             link.tags.insert("local".to_string());
+        } else if link.url.starts_with("#") {
+            link.tags.insert("local".to_string());
         } else if config.trim_https_prefix
             && let Some(EmOrText::Text(ltext)) = link.items.first_mut()
             && let Some(res) = ltext.strip_prefix("https://")
@@ -834,7 +836,7 @@ impl Entries {
         let mut res = String::new();
         for entry in &self.entries {
             res.push_str(&entry.pretty_print());
-            res.push_str("\n");
+            res.push('\n');
         }
         res.pop();
         res
